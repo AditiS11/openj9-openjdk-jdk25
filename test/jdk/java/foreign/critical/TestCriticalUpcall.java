@@ -22,6 +22,12 @@
  */
 
 /*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2023, 2023 All Rights Reserved
+ * ===========================================================================
+ */
+
+/*
  * @test
  * @library ../ /test/lib
  * @requires jdk.foreign.linker != "FALLBACK"
@@ -46,7 +52,7 @@ public class TestCriticalUpcall extends UpcallTestHelper {
         // test to see if we catch a trivial downcall doing an upcall
         runInNewProcess(Runner.class, true, List.of("-XX:-CreateCoredumpOnCrash"), List.of())
             .shouldNotHaveExitValue(0)
-            .stdoutShouldContain("wrong thread state for upcall");
+            .stderrShouldContain("wrong thread state for upcall");
     }
 
     public static class Runner extends NativeTestHelper {

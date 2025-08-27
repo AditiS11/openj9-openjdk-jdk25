@@ -23,6 +23,12 @@
  * questions.
  */
 
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2023, 2023 All Rights Reserved
+ * ===========================================================================
+ */
+
 package java.net;
 
 import java.net.spi.InetAddressResolver;
@@ -383,6 +389,12 @@ public sealed class InetAddress implements Serializable permits Inet4Address, In
                     public byte[] addressBytes(Inet6Address inet6Address) {
                         return inet6Address.addressBytes();
                     }
+
+                    /*[IF CRIU_SUPPORT]*/
+                    public void clearInetAddressCache() {
+                        InetAddress.clearInetAddressCache();
+                    }
+                    /*[ENDIF] CRIU_SUPPORT */
                 }
         );
         Exceptions.setup(); // needed for native exceptions
@@ -871,6 +883,16 @@ public sealed class InetAddress implements Serializable permits Inet4Address, In
     // still being looked-up by NameService(s)) or CachedAddresses when cached
     private static final ConcurrentMap<String, Addresses> cache =
         new ConcurrentHashMap<>();
+
+    /*[IF CRIU_SUPPORT]*/
+    /**
+     * To be invoked by CRIU post-restore hook, clear the cache.
+     */
+    static void clearInetAddressCache() {
+        cache.clear();
+        expirySet.clear();
+    }
+    /*[ENDIF] CRIU_SUPPORT */
 
     // CachedAddresses that have to expire are kept ordered in this NavigableSet
     // which is scanned on each access

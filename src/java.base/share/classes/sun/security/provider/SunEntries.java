@@ -22,6 +22,11 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2018, 2025 All Rights Reserved
+ * ===========================================================================
+ */
 
 package sun.security.provider;
 
@@ -36,6 +41,8 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 
+import jdk.crypto.jniprovider.NativeCrypto;
+import jdk.internal.util.OperatingSystem;
 import jdk.internal.util.StaticProperty;
 
 import static sun.security.util.SecurityProviderConstants.getAliases;
@@ -86,6 +93,62 @@ import static sun.security.util.SecurityProviderConstants.getAliases;
 
 public final class SunEntries {
 
+    private static final boolean useNativeMD5;
+    private static final boolean useNativeSHA;
+    private static final boolean useNativeSHA224;
+    private static final boolean useNativeSHA256;
+    private static final boolean useNativeSHA384;
+    private static final boolean useNativeSHA512;
+    private static final boolean useNativeSHA512_224;
+    private static final boolean useNativeSHA512_256;
+
+    static {
+        /* The property 'jdk.nativeDigest' is used to control enablement of all native
+         * digest implementations.
+         */
+        boolean useNativeDigest = NativeCrypto.isAlgorithmEnabled("jdk.nativeDigest", "MessageDigest");
+
+        /* The property 'jdk.nativeMD5' is used to control enablement of the native
+         * MD5 implementation.
+         */
+        useNativeMD5 = useNativeDigest && NativeCrypto.isAlgorithmEnabled("jdk.nativeMD5", "MD5");
+
+        /* The property 'jdk.nativeSHA' is used to control enablement of the native
+         * SHA implementation.
+         */
+        useNativeSHA = useNativeDigest && NativeCrypto.isAlgorithmEnabled("jdk.nativeSHA", "SHA");
+
+        /* The property 'jdk.nativeSHA224' is used to control enablement of the native
+         * SHA-224 implementation.
+         */
+        useNativeSHA224 = useNativeDigest && NativeCrypto.isAlgorithmEnabled("jdk.nativeSHA224", "SHA-224");
+
+        /* The property 'jdk.nativeSHA256' is used to control enablement of the native
+         * SHA-256 implementation.
+         */
+        useNativeSHA256 = useNativeDigest && NativeCrypto.isAlgorithmEnabled("jdk.nativeSHA256", "SHA-256");
+
+        /* The property 'jdk.nativeSHA384' is used to control enablement of the native
+         * SHA-384 implementation.
+         */
+        useNativeSHA384 = useNativeDigest && NativeCrypto.isAlgorithmEnabled("jdk.nativeSHA384", "SHA-384");
+
+        /* The property 'jdk.nativeSHA512' is used to control enablement of the native
+         * SHA-512 implementation.
+         */
+        useNativeSHA512 = useNativeDigest && NativeCrypto.isAlgorithmEnabled("jdk.nativeSHA512", "SHA-512");
+
+        /* The property 'jdk.nativeSHA512_224' is used to control enablement of the native
+         * SHA-512-224 implementation.
+         */
+        useNativeSHA512_224 = useNativeDigest && NativeCrypto.isAlgorithmEnabled("jdk.nativeSHA512_224", "SHA-512-224");
+
+        /* The property 'jdk.nativeSHA512_256' is used to control enablement of the native
+         * SHA-512-256 implementation.
+         */
+        useNativeSHA512_256 = useNativeDigest && NativeCrypto.isAlgorithmEnabled("jdk.nativeSHA512_256", "SHA-512-256");
+    }
+
     // the default algo used by SecureRandom class for new SecureRandom() calls
     public static final String DEF_SECURE_RANDOM_ALGO;
 
@@ -97,6 +160,43 @@ public final class SunEntries {
         // common attribute map
         HashMap<String, String> attrs = new HashMap<>(3);
 
+        attrs.put("ImplementedIn", "Software");
+
+        /*
+         * Certificates
+         */
+        addWithAlias(p, "CertificateFactory", "X.509",
+                "sun.security.provider.X509Factory", attrs);
+
+        /*
+         * CertStores
+         */
+        add(p, "CertStore", "Collection",
+                "sun.security.provider.certpath.CollectionCertStore",
+                attrs);
+        add(p, "CertStore", "com.sun.security.IndexedCollection",
+                "sun.security.provider.certpath.IndexedCollectionCertStore",
+                attrs);
+
+        /*
+         * Configuration
+         */
+        add(p, "Configuration", "JavaLoginConfig",
+                "sun.security.provider.ConfigFile$Spi");
+
+        /*
+         * CertPathBuilder and CertPathValidator
+         */
+        attrs.put("ValidationAlgorithm", "RFC5280");
+
+        add(p, "CertPathBuilder", "PKIX",
+                "sun.security.provider.certpath.SunCertPathBuilder",
+                attrs);
+        add(p, "CertPathValidator", "PKIX",
+                "sun.security.provider.certpath.PKIXCertPathValidator",
+                attrs);
+
+        attrs.clear();
         /*
          * SecureRandom engines
          */
@@ -237,25 +337,89 @@ public final class SunEntries {
         /*
          * Digest engines
          */
+        String providerMD5;
+        String providerSHA;
+        String providerSHA224;
+        String providerSHA256;
+        String providerSHA384;
+        String providerSHA512;
+        String providerSHA512_224;
+        String providerSHA512_256;
+        /*
+         * Set the digest provider based on whether native crypto is
+         * enabled or not.
+         */
+        /* Don't use native MD5 on AIX due to an observed performance regression. */
+        if (useNativeMD5
+            && NativeCrypto.isAlgorithmAvailable("MD5")
+            && !OperatingSystem.isAix()
+        ) {
+            providerMD5 = "sun.security.provider.NativeMD5";
+        } else {
+            providerMD5 = "sun.security.provider.MD5";
+        }
+
+        if (useNativeSHA && NativeCrypto.isAllowedAndLoaded()) {
+            providerSHA = "sun.security.provider.NativeSHA";
+        } else {
+            providerSHA = "sun.security.provider.SHA";
+        }
+
+        if (useNativeSHA224 && NativeCrypto.isAllowedAndLoaded()) {
+            providerSHA224 = "sun.security.provider.NativeSHA2$SHA224";
+        } else {
+            providerSHA224 = "sun.security.provider.SHA2$SHA224";
+        }
+
+        if (useNativeSHA256 && NativeCrypto.isAllowedAndLoaded()) {
+            providerSHA256 = "sun.security.provider.NativeSHA2$SHA256";
+        } else {
+            providerSHA256 = "sun.security.provider.SHA2$SHA256";
+        }
+
+        if (useNativeSHA384 && NativeCrypto.isAllowedAndLoaded()) {
+            providerSHA384 = "sun.security.provider.NativeSHA5$SHA384";
+        } else {
+            providerSHA384 = "sun.security.provider.SHA5$SHA384";
+        }
+
+        if (useNativeSHA512 && NativeCrypto.isAllowedAndLoaded()) {
+            providerSHA512 = "sun.security.provider.NativeSHA5$SHA512";
+        } else {
+            providerSHA512 = "sun.security.provider.SHA5$SHA512";
+        }
+
+        if (useNativeSHA512_224 && NativeCrypto.isAllowedAndLoaded()) {
+            providerSHA512_224 = "sun.security.provider.NativeSHA5$SHA512_224";
+        } else {
+            providerSHA512_224 = "sun.security.provider.SHA5$SHA512_224";
+        }
+
+        if (useNativeSHA512_256 && NativeCrypto.isAllowedAndLoaded()) {
+            providerSHA512_256 = "sun.security.provider.NativeSHA5$SHA512_256";
+        } else {
+            providerSHA512_256 = "sun.security.provider.SHA5$SHA512_256";
+        }
+
         addWithAlias(p, "MessageDigest", "MD2", "sun.security.provider.MD2",
                 attrs);
-        addWithAlias(p, "MessageDigest", "MD5", "sun.security.provider.MD5",
+        addWithAlias(p, "MessageDigest", "MD5", providerMD5,
                 attrs);
-        addWithAlias(p, "MessageDigest", "SHA-1", "sun.security.provider.SHA",
+        addWithAlias(p, "MessageDigest", "SHA-1", providerSHA,
                 attrs);
 
         addWithAlias(p, "MessageDigest", "SHA-224",
-                "sun.security.provider.SHA2$SHA224", attrs);
+                providerSHA224, attrs);
         addWithAlias(p, "MessageDigest", "SHA-256",
-                "sun.security.provider.SHA2$SHA256", attrs);
+                providerSHA256, attrs);
         addWithAlias(p, "MessageDigest", "SHA-384",
-                "sun.security.provider.SHA5$SHA384", attrs);
+                providerSHA384, attrs);
         addWithAlias(p, "MessageDigest", "SHA-512",
-                "sun.security.provider.SHA5$SHA512", attrs);
+                providerSHA512, attrs);
         addWithAlias(p, "MessageDigest", "SHA-512/224",
-                "sun.security.provider.SHA5$SHA512_224", attrs);
+                providerSHA512_224, attrs);
         addWithAlias(p, "MessageDigest", "SHA-512/256",
-                "sun.security.provider.SHA5$SHA512_256", attrs);
+                providerSHA512_256, attrs);
         addWithAlias(p, "MessageDigest", "SHA3-224",
                 "sun.security.provider.SHA3$SHA224", attrs);
         addWithAlias(p, "MessageDigest", "SHA3-256",
@@ -270,12 +434,6 @@ public final class SunEntries {
                 "sun.security.provider.SHA3$SHAKE256Hash", attrs);
 
         /*
-         * Certificates
-         */
-        addWithAlias(p, "CertificateFactory", "X.509",
-                "sun.security.provider.X509Factory", attrs);
-
-        /*
          * KeyStore
          */
         add(p, "KeyStore", "PKCS12",
@@ -285,37 +443,6 @@ public final class SunEntries {
         add(p, "KeyStore", "CaseExactJKS",
                 "sun.security.provider.JavaKeyStore$CaseExactJKS", attrs);
         add(p, "KeyStore", "DKS", "sun.security.provider.DomainKeyStore$DKS",
-                attrs);
-
-
-        /*
-         * CertStores
-         */
-        add(p, "CertStore", "Collection",
-                "sun.security.provider.certpath.CollectionCertStore",
-                attrs);
-        add(p, "CertStore", "com.sun.security.IndexedCollection",
-                "sun.security.provider.certpath.IndexedCollectionCertStore",
-                attrs);
-
-        /*
-         * Configuration
-         */
-        add(p, "Configuration", "JavaLoginConfig",
-                "sun.security.provider.ConfigFile$Spi");
-
-        /*
-         * CertPathBuilder and CertPathValidator
-         */
-        attrs.clear();
-        attrs.put("ValidationAlgorithm", "RFC5280");
-        attrs.put("ImplementedIn", "Software");
-
-        add(p, "CertPathBuilder", "PKIX",
-                "sun.security.provider.certpath.SunCertPathBuilder",
-                attrs);
-        add(p, "CertPathValidator", "PKIX",
-                "sun.security.provider.certpath.PKIXCertPathValidator",
                 attrs);
     }
 

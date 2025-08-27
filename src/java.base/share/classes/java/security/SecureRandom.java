@@ -23,6 +23,12 @@
  * questions.
  */
 
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2022, 2023 All Rights Reserved
+ * ===========================================================================
+ */
+
 package java.security;
 
 import sun.security.jca.GetInstance;
@@ -35,6 +41,8 @@ import java.security.Provider.Service;
 import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import openj9.internal.security.RestrictedSecurity;
 
 /**
  * This class provides a cryptographically strong random number
@@ -271,12 +279,22 @@ public class SecureRandom extends java.util.Random {
     private void getDefaultPRNG(boolean setSeed, byte[] seed) {
         Service prngService = null;
         String prngAlgorithm = null;
+
         for (Provider p : Providers.getProviderList().providers()) {
+            // In restricted security mode, use the SecureRandom from restricted security provider.
+            if (RestrictedSecurity.isEnabled()) {
+                String srProvider = RestrictedSecurity.getRandomProvider();
+                if (p.getName().equals(srProvider)) {
+                    prngAlgorithm = RestrictedSecurity.getRandomAlgorithm();
+                    prngService = p.getService("SecureRandom", prngAlgorithm);
+                    break;
+                }
+            }
             // SUN provider uses the SunEntries.DEF_SECURE_RANDOM_ALGO
             // as the default SecureRandom algorithm; for other providers,
             // Provider.getDefaultSecureRandom() will use the 1st
             // registered SecureRandom algorithm
-            if (p.getName().equals("SUN")) {
+            else if (p.getName().equals("SUN")) {
                 prngAlgorithm = SunEntries.DEF_SECURE_RANDOM_ALGO;
                 prngService = p.getService("SecureRandom", prngAlgorithm);
                 break;
@@ -288,6 +306,7 @@ public class SecureRandom extends java.util.Random {
                 }
             }
         }
+
         // per javadoc, if none of the Providers support an RNG algorithm,
         // then an implementation-specific default is returned.
         if (prngService == null) {

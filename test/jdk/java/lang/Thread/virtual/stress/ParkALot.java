@@ -20,13 +20,18 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2023, 2023 All Rights Reserved
+ * ===========================================================================
+ */
 
 /*
  * @test
  * @summary Stress test parking and unparking
  * @requires vm.debug != true
  * @library /test/lib
- * @run main/othervm/timeout=300 ParkALot 300000
+ * @run main/othervm/timeout=300 ParkALot 5000
  */
 
 /*

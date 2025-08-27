@@ -23,6 +23,12 @@
  * questions.
  */
 
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2022, 2023 All Rights Reserved
+ * ===========================================================================
+ */
+
 /**
  * Defines the foundational APIs of the Java SE Platform.
  *
@@ -145,6 +151,8 @@ module java.base {
         jdk.compiler;
     exports com.sun.security.ntlm to
         java.security.sasl;
+    exports jdk.crypto.jniprovider to
+        jdk.crypto.ec;
     exports jdk.internal to
         jdk.incubator.vector;
     // Note: all modules in the exported list participate in preview  features
@@ -196,12 +204,18 @@ module java.base {
         jdk.compiler,
         jdk.jlink;
     exports jdk.internal.logger to
+/*[IF OPENJCEPLUS_SUPPORT]*/
+        openjceplus,
+/*[ENDIF] OPENJCEPLUS_SUPPORT */
         java.logging;
     exports jdk.internal.org.xml.sax to
         jdk.jfr;
     exports jdk.internal.org.xml.sax.helpers to
         jdk.jfr;
     exports jdk.internal.misc to
+/*[IF OPENJCEPLUS_SUPPORT]*/
+        openjceplus,
+/*[ENDIF] OPENJCEPLUS_SUPPORT */
         java.desktop,
         java.logging,
         java.management,
@@ -293,6 +307,9 @@ module java.base {
         jdk.jconsole,
         jdk.sctp;
     exports sun.net.www to
+/*[IF OPENJCEPLUS_SUPPORT]*/
+        openjceplus,
+/*[ENDIF] OPENJCEPLUS_SUPPORT */
         java.net.http,
         jdk.jartool;
     exports sun.net.www.protocol.http to
@@ -314,14 +331,23 @@ module java.base {
         java.desktop,
         java.management;
     exports sun.security.internal.interfaces to
+/*[IF OPENJCEPLUS_SUPPORT]*/
+        openjceplus,
+/*[ENDIF] OPENJCEPLUS_SUPPORT */
         jdk.crypto.cryptoki;
     exports sun.security.internal.spec to
+/*[IF OPENJCEPLUS_SUPPORT]*/
+        openjceplus,
+/*[ENDIF] OPENJCEPLUS_SUPPORT */
         jdk.crypto.cryptoki;
     exports sun.security.jca to
         java.smartcardio,
         jdk.crypto.cryptoki,
         jdk.naming.dns;
     exports sun.security.pkcs to
+/*[IF OPENJCEPLUS_SUPPORT]*/
+        openjceplus,
+/*[ENDIF] OPENJCEPLUS_SUPPORT */
         jdk.jartool;
     exports sun.security.provider to
         java.security.jgss,
@@ -337,6 +363,9 @@ module java.base {
     exports sun.security.tools to
         jdk.jartool;
     exports sun.security.util to
+/*[IF OPENJCEPLUS_SUPPORT]*/
+        openjceplus,
+/*[ENDIF] OPENJCEPLUS_SUPPORT */
         java.naming,
         java.security.jgss,
         java.security.sasl,
@@ -347,6 +376,9 @@ module java.base {
         jdk.security.auth,
         jdk.security.jgss;
     exports sun.security.x509 to
+/*[IF OPENJCEPLUS_SUPPORT]*/
+        openjceplus,
+/*[ENDIF] OPENJCEPLUS_SUPPORT */
         jdk.crypto.cryptoki,
         jdk.jartool;
     exports sun.security.validator to
@@ -358,11 +390,17 @@ module java.base {
         jdk.jlink,
         jdk.localedata;
     exports sun.util.logging to
+/*[IF OPENJCEPLUS_SUPPORT]*/
+        openjceplus,
+/*[ENDIF] OPENJCEPLUS_SUPPORT */
         java.desktop,
         java.logging,
         java.prefs;
     exports sun.util.resources to
         jdk.localedata;
+    exports openj9.internal.security to
+        jdk.crypto.cryptoki,
+        jdk.crypto.ec;
 
     // the service types defined by the APIs in this module
 

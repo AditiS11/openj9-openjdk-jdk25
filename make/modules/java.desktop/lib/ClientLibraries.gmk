@@ -22,6 +22,9 @@
 # or visit www.oracle.com if you need additional information or have any
 # questions.
 #
+# ===========================================================================
+# (c) Copyright IBM Corp. 2024, 2024 All Rights Reserved
+# ===========================================================================
 
 include MakeIncludeStart.gmk
 ifeq ($(INCLUDE), true)
@@ -315,6 +318,14 @@ else
   endif
   ifeq ($(call isTargetOs, linux macosx), true)
     HARFBUZZ_CFLAGS += -DHAVE_INTEL_ATOMIC_PRIMITIVES -DHB_NO_VISIBILITY
+  endif
+
+  # Early re-canonizing has to be disabled to workaround an internal XlC compiler error
+  # when building libharfbuzz
+  ifeq ($(call isTargetOs, aix), true)
+   ifneq ($(TOOLCHAIN_TYPE), clang)
+    HARFBUZZ_CFLAGS += -qdebug=necan
+   endif
   endif
 
   # hb-ft.cc is not presently needed, and requires freetype 2.4.2 or later.

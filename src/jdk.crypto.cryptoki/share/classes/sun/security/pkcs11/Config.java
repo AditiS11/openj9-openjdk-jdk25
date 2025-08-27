@@ -23,6 +23,12 @@
  * questions.
  */
 
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2023, 2025 All Rights Reserved
+ * ===========================================================================
+ */
+
 package sun.security.pkcs11;
 
 import java.io.*;
@@ -31,6 +37,7 @@ import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
+import sun.security.util.Debug;
 import sun.security.util.PropertyExpander;
 
 import sun.security.pkcs11.wrapper.*;
@@ -85,6 +92,9 @@ final class Config {
 
     // name of the PKCS#11 library
     private String library;
+
+    // name of the PKCS#11 token to use
+    private String tokenLabel;
 
     // description to pass to the provider class
     private String description;
@@ -216,6 +226,10 @@ final class Config {
 
     String getLibrary() {
         return library;
+    }
+
+    String getTokenLabel() {
+        return tokenLabel;
     }
 
     String getDescription() {
@@ -503,9 +517,16 @@ final class Config {
             case "nssOptimizeSpace"->
                 nssOptimizeSpace = parseBooleanEntry(st.sval);
             default->
-                throw new ConfigurationException
-                        ("Unknown keyword '" + st.sval + "', line " +
-                        st.lineno());
+                {
+                    if ("tokenLabel".equalsIgnoreCase(st.sval)) {
+                        st.sval = "tokenLabel";
+                        tokenLabel = parseStringEntry(st.sval);
+                    } else {
+                        throw new ConfigurationException
+                                ("Unknown keyword '" + st.sval + "', line " +
+                                        st.lineno());
+                    }
+                }
             }
             parsedKeywords.add(st.sval);
         }
@@ -1064,11 +1085,23 @@ final class Config {
 class ConfigurationException extends IOException {
     @Serial
     private static final long serialVersionUID = 254492758807673194L;
+
+    private static final Debug configDebug = Debug.getInstance("sunpkcs11");
+
+    private static void debug(String msg) {
+         // If debugging is enabled, use the Debug class for additional sunpkcs11 logging.
+         if (configDebug != null) {
+             configDebug.println(msg);
+         }
+     }
+
     ConfigurationException(String msg) {
         super(msg);
+        debug(msg);
     }
 
     ConfigurationException(String msg, Throwable e) {
         super(msg, e);
+        debug(msg);
     }
 }

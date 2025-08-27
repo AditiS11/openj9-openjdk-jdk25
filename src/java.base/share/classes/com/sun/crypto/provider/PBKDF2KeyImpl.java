@@ -22,6 +22,11 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2023, 2025 All Rights Reserved
+ * ===========================================================================
+ */
 
 package com.sun.crypto.provider;
 
@@ -42,7 +47,11 @@ import javax.crypto.Mac;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.PBEKeySpec;
 
+import jdk.crypto.jniprovider.NativeCrypto;
 import jdk.internal.ref.CleanerFactory;
+
+import openj9.internal.security.RestrictedSecurity;
+
 import sun.security.util.PBEUtil;
 
 /**
@@ -59,6 +68,10 @@ final class PBKDF2KeyImpl implements javax.crypto.interfaces.PBEKey {
 
     @java.io.Serial
     private static final long serialVersionUID = -2234868909660948157L;
+
+    private static final boolean useNativePBKDF2 = NativeCrypto.isAlgorithmEnabled("jdk.nativePBKDF2", "PBKDF2");
+    private static NativeCrypto nativeCrypto;
+    private static final boolean nativeCryptTrace = NativeCrypto.isTraceEnabled();
 
     private final char[] passwd;
     private final byte[] salt;
@@ -99,8 +112,57 @@ final class PBKDF2KeyImpl implements javax.crypto.interfaces.PBEKey {
             } else if (keyLength < 0) {
                 throw new InvalidKeySpecException("Key length is negative");
             }
-            this.prf = Mac.getInstance(prfAlgo, SunJCE.getInstance());
-            key = deriveKey(prf, passwdBytes, salt, iterCount, keyLength);
+            if (RestrictedSecurity.isFIPSEnabled()) {
+                this.prf = Mac.getInstance(prfAlgo);
+            } else {
+                this.prf = Mac.getInstance(prfAlgo, SunJCE.getInstance());
+            }
+            nativePBKDF2:
+            if (useNativePBKDF2
+                && (NativeCrypto.getVersionIfAvailable() >= NativeCrypto.OPENSSL_VERSION_1_1_1)
+            ) {
+                int hashIndex;
+                switch (prfAlgo) {
+                case "HmacSHA1":
+                    hashIndex = NativeCrypto.SHA1_160;
+                    break;
+                case "HmacSHA224":
+                    hashIndex = NativeCrypto.SHA2_224;
+                    break;
+                case "HmacSHA256":
+                    hashIndex = NativeCrypto.SHA2_256;
+                    break;
+                case "HmacSHA384":
+                    hashIndex = NativeCrypto.SHA5_384;
+                    break;
+                case "HmacSHA512":
+                    hashIndex = NativeCrypto.SHA5_512;
+                    break;
+                case "HmacSHA512/224":
+                    hashIndex = NativeCrypto.SHA5_512_224;
+                    break;
+                case "HmacSHA512/256":
+                    hashIndex = NativeCrypto.SHA5_512_256;
+                    break;
+                default:
+                    if (nativeCryptTrace) {
+                        System.err.println("The algorithm " + prfAlgo
+                                + " is not supported in native code, using Java implementation.");
+                    }
+                    break nativePBKDF2;
+                }
+                if (nativeCrypto == null) {
+                    nativeCrypto = NativeCrypto.getNativeCrypto();
+                }
+                key = nativeCrypto.PBKDF2Derive(passwdBytes, salt, iterCount, keyLength / 8, hashIndex);
+                if ((key == null) && nativeCryptTrace) {
+                    System.err.println("Native PBKDF2 failed for algorithm " + prfAlgo
+                            + ", using Java implementation.");
+                }
+            }
+            if (key == null) {
+                key = deriveKey(prf, passwdBytes, salt, iterCount, keyLength);
+            }
         } catch (NoSuchAlgorithmException nsae) {
             // not gonna happen; re-throw just in case
             throw new InvalidKeySpecException(nsae);

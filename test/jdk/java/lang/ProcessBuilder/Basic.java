@@ -22,6 +22,12 @@
  */
 
 /*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2020, 2022 All Rights Reserved
+ * ===========================================================================
+ */
+
+/*
  * @test
  * @bug 4199068 4738465 4937983 4930681 4926230 4931433 4932663 4986689
  *      5026830 5023243 5070673 4052517 4811767 6192449 6397034 6413313
@@ -299,7 +305,8 @@ public class Basic {
         environment = new TreeMap<>(environment);
         for (Map.Entry<String,String> e : environment.entrySet())
             // Ignore magic environment variables added by the launcher
-            if (! e.getKey().equals("LD_LIBRARY_PATH"))
+            if (! e.getKey().equals("LD_LIBRARY_PATH") &&
+                ! e.getKey().equals("OPENJ9_JAVA_COMMAND_LINE"))
                 sb.append(e.getKey())
                     .append('=')
                     .append(e.getValue())
@@ -808,7 +815,10 @@ public class Basic {
      * Remove it from the list of env variables
      */
     private static String removeAixExpectedVars(String vars) {
-        return vars.replace("AIXTHREAD_GUARDPAGES=0,", "");
+        String cleanedVars = vars.replace("AIXTHREAD_GUARDPAGES=0,", "");
+        // OpenJ9 adds MALLOCOPTIONS
+        cleanedVars = cleanedVars.replace("MALLOCOPTIONS=multiheap,considersize,", "");
+        return cleanedVars;
     }
 
     private static String sortByLinesWindowsly(String text) {
@@ -1767,6 +1777,13 @@ public class Basic {
             List<String> list = new ArrayList<String>(javaChildArgs);
             list.add(1, String.format("-XX:OnOutOfMemoryError=%s -version",
                                       javaExe));
+            // Disable OpenJ9 OOM dumps for this OOM test, but enable others to catch unexpected problems.
+            list.add(2, "-Xdump:system:none");
+            list.add(3, "-Xdump:heap:none");
+            list.add(4, "-Xdump:system:events=gpf+abort+traceassert+corruptcache");
+            // Limit max heap to 500MB. If there is too much heap OpenJ9 can succeed instead
+            // of throwing OOM. We know 16GB (25% of 64GB) is too much, and up to 8GB is fine.
+            list.add(5, "-Xmx500m");
             list.add("ArrayOOME");
             ProcessResults r = run(new ProcessBuilder(list));
             check(r.err().contains("java.lang.OutOfMemoryError:"));

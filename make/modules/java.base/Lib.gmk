@@ -23,6 +23,10 @@
 # questions.
 #
 
+# ===========================================================================
+# (c) Copyright IBM Corp. 2018, 2025 All Rights Reserved
+# ===========================================================================
+
 ################################################################################
 
 include CopyFiles.gmk
@@ -74,6 +78,27 @@ TARGETS += $(BUILD_LIBNET)
 $(eval $(call SetupJdkLibrary, BUILD_LIBNIO, \
     NAME := nio, \
     OPTIMIZATION := HIGH, \
+    WARNINGS_AS_ERRORS_xlc := false, \
+    Net.c_CFLAGS := \
+        -I$(OPENJ9OMR_TOPDIR)/include_core \
+        -I$(OPENJ9_VM_BUILD_DIR)/jcl, \
+    nio_util.c_CFLAGS := \
+        -I$(OPENJ9_TOPDIR)/runtime/include \
+        -I$(OPENJ9_TOPDIR)/runtime/oti \
+        -I$(OPENJ9OMR_TOPDIR)/include_core \
+        -I$(OPENJ9_VM_BUILD_DIR) \
+        -I$(OPENJ9_TOPDIR)/runtime/jcl \
+        -I$(OPENJ9_TOPDIR)/runtime/util \
+        -I$(OPENJ9_VM_BUILD_DIR)/jcl, \
+    SocketDispatcher.c_CFLAGS := \
+        -I$(OPENJ9OMR_TOPDIR)/include_core \
+        -I$(OPENJ9_VM_BUILD_DIR)/jcl, \
+    UnixDispatcher.c_CFLAGS := \
+        -I$(OPENJ9OMR_TOPDIR)/include_core \
+        -I$(OPENJ9_VM_BUILD_DIR)/jcl, \
+    UnixDomainSockets.c_CFLAGS := \
+        -I$(OPENJ9OMR_TOPDIR)/include_core \
+        -I$(OPENJ9_VM_BUILD_DIR)/jcl, \
     EXTRA_HEADER_DIRS := \
         libnio/ch \
         libnio/fs \
@@ -111,6 +136,8 @@ ifeq ($(call isTargetOs, macosx), true)
   TARGETS += $(BUILD_LIBOSXSECURITY)
 endif
 
+# use libjsig from OpenJ9
+ifeq ($(OPENJ9_TOPDIR),)
 ifeq ($(call isTargetOsType, unix), true)
   ##############################################################################
   ## Build libjsig
@@ -151,6 +178,7 @@ ifeq ($(call isTargetOsType, unix), true)
     $(foreach v, $(JVM_VARIANTS), $(eval $(call CreateSymlinks,$v)))
   endif
 endif
+endif # use libjsig from OpenJ9
 
 ################################################################################
 ## Build libsyslookup

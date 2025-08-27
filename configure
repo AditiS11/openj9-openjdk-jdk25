@@ -21,7 +21,10 @@
 # or visit www.oracle.com if you need additional information or have any
 # questions.
 #
-
+# ===========================================================================
+# (c) Copyright IBM Corp. 2018, 2021 All Rights Reserved
+# ===========================================================================
+#
 # This is a thin wrapper which will call the real configure script, and
 # make sure that is called using bash.
 
@@ -32,6 +35,9 @@ if test -z "${this_script_dir}"; then
   echo "Error: Could not determine location of configure script"
   exit 1
 fi
+
+# Set CUSTOM_CONFIG_DIR for OpenJ9 extensions.
+export CUSTOM_CONFIG_DIR=$this_script_dir/closed/autoconf
 
 # Delegate to wrapper, forcing wrapper to believe $0 is this script by using -c.
 # This trick is needed to get autoconf to co-operate properly.

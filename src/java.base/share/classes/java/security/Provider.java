@@ -23,6 +23,12 @@
  * questions.
  */
 
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2022, 2025 All Rights Reserved
+ * ===========================================================================
+ */
+
 package java.security;
 
 import jdk.internal.event.SecurityProviderServiceEvent;
@@ -39,6 +45,8 @@ import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.concurrent.ConcurrentHashMap;
+
+import openj9.internal.security.RestrictedSecurity;
 
 /**
  * This class represents a "provider" for the
@@ -1145,7 +1153,7 @@ public abstract class Provider extends Properties {
         Service s = serviceMap.get(key);
         if (s == null) {
             s = legacyMap.get(key);
-            if (s != null && !s.isValid()) {
+            if (s != null && (!s.isValid() || !RestrictedSecurity.isServiceAllowed(s))) {
                 legacyMap.remove(key, s);
                 return null;
             }
@@ -1189,7 +1197,7 @@ public abstract class Provider extends Properties {
             }
             if (!legacyMap.isEmpty()) {
                 legacyMap.entrySet().forEach(entry -> {
-                    if (!entry.getValue().isValid()) {
+                    if (!entry.getValue().isValid() || !RestrictedSecurity.isServiceAllowed(entry.getValue())) {
                         legacyMap.remove(entry.getKey(), entry.getValue());
                     } else {
                         set.add(entry.getValue());
@@ -1229,6 +1237,11 @@ public abstract class Provider extends Properties {
         if (s.getProvider() != this) {
             throw new IllegalArgumentException
                     ("service.getProvider() must match this Provider object");
+        }
+        if (!RestrictedSecurity.canServiceBeRegistered(s)) {
+            // We're in restricted security mode which does not allow this service,
+            // return without registering.
+            return;
         }
         String type = s.getType();
         String algorithm = s.getAlgorithm();

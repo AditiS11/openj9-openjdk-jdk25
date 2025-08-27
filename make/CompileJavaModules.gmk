@@ -22,6 +22,9 @@
 # or visit www.oracle.com if you need additional information or have any
 # questions.
 #
+# ===========================================================================
+# (c) Copyright IBM Corp. 2025, 2025 All Rights Reserved
+# ===========================================================================
 
 include MakeFileStart.gmk
 
@@ -87,10 +90,12 @@ CreateHkTargets = \
 
 THIS_SNIPPET := modules/$(MODULE)/Java.gmk
 
-ifneq ($(wildcard $(THIS_SNIPPET)), )
+# Find the optional snippet via make's include path.
+FULL_SNIPPET := $(firstword $(wildcard $(addsuffix /$(notdir $(THIS_SNIPPET)), $(.INCLUDE_DIRS))))
+ifneq ($(FULL_SNIPPET), )
   include MakeSnippetStart.gmk
 
-  include $(THIS_SNIPPET)
+  include $(FULL_SNIPPET)
 
   include MakeSnippetEnd.gmk
 endif

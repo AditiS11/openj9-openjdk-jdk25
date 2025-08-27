@@ -22,10 +22,18 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
+
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2022, 2024 All Rights Reserved
+ * ===========================================================================
+ */
+
 package jdk.internal.loader;
 
 import jdk.internal.misc.VM;
 import jdk.internal.ref.CleanerFactory;
+import jdk.internal.util.OperatingSystem;
 import jdk.internal.util.StaticProperty;
 
 import java.io.File;
@@ -52,13 +60,21 @@ import java.util.concurrent.locks.ReentrantLock;
  * will fail.
  */
 public final class NativeLibraries {
-    private static final boolean loadLibraryOnlyIfPresent = ClassLoaderHelper.loadLibraryOnlyIfPresent();
+    private static boolean loadLibraryOnlyIfPresent;
     private final Map<String, NativeLibraryImpl> libraries = new ConcurrentHashMap<>();
     private final ClassLoader loader;
     // caller, if non-null, is the fromClass parameter for NativeLibraries::loadLibrary
     // unless specified
     private final Class<?> caller;      // may be null
     private final boolean searchJavaLibraryPath;
+
+    // The loadLibraryOnlyIfPresent is lazily initialized to avoid OpenJ9 bootstrap issue.
+    // This lazy initialization is only required by macOS.
+    private static boolean loadLibraryOnlyIfPresentInitialized;
+    private static void initLoadLibraryOnlyIfPresent() {
+        loadLibraryOnlyIfPresent = ClassLoaderHelper.loadLibraryOnlyIfPresent();
+        loadLibraryOnlyIfPresentInitialized = true;
+    }
 
     /**
      * Creates a NativeLibraries instance for loading JNI native libraries
@@ -118,6 +134,9 @@ public final class NativeLibraries {
         boolean isBuiltin = (name != null);
         if (!isBuiltin) {
             try {
+                if (!loadLibraryOnlyIfPresentInitialized) {
+                    initLoadLibraryOnlyIfPresent();
+                }
                 if (loadLibraryOnlyIfPresent && !file.exists()) {
                     return null;
                 }
@@ -322,6 +341,9 @@ public final class NativeLibraries {
         }
 
         private boolean throwExceptionIfFail() {
+            if (!loadLibraryOnlyIfPresentInitialized) {
+                initLoadLibraryOnlyIfPresent();
+            }
             if (loadLibraryOnlyIfPresent) return true;
 
             // If the file exists but fails to load, UnsatisfiedLinkException thrown by the VM
@@ -337,6 +359,24 @@ public final class NativeLibraries {
             unload(name, isBuiltin, handle);
         }
     }
+
+    public static final NativeLibrary defaultLibrary = new NativeLibraryImpl(Object.class, "<default>", true) {
+
+        @Override
+        boolean open() {
+            throw new UnsupportedOperationException("Cannot load default library");
+        }
+
+        @Override
+        public long find(String name) {
+            if (OperatingSystem.isAix() || OperatingSystem.isZOS()) {
+                return NativeLibraries.findEntryInProcess(name);
+            } else {
+                throw new UnsupportedOperationException("Cannot find on non-AIX/zOS platforms");
+            }
+        }
+
+    };
 
     /*
      * The run() method will be invoked when this class loader becomes
@@ -533,4 +573,5 @@ public final class NativeLibraries {
      */
     private static native void unload(String name, boolean isBuiltin, long handle);
     private static native String findBuiltinLib(String name);
+    private static native long findEntryInProcess(String name);
 }

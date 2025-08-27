@@ -23,6 +23,12 @@
  * questions.
  */
 
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2015, 2018 All Rights Reserved
+ * ===========================================================================
+ */
+
 import java.lang.management.ManagementFactory;
 
 /**
@@ -43,8 +49,5 @@ module jdk.management {
 
     exports com.sun.management;
     exports jdk.management;
-
-    provides sun.management.spi.PlatformMBeanProvider with
-        com.sun.management.internal.PlatformMBeanProviderImpl;
 }
 

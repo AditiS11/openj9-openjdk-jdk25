@@ -31,6 +31,11 @@
  * @author Andrey Ozerov
  * @run main/othervm SubclassGC
  */
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2024, 2024 All Rights Reserved
+ * ===========================================================================
+ */
 
 import java.io.*;
 import java.lang.ref.Reference;
@@ -70,6 +75,7 @@ public class SubclassGC {
                 systemLoader = null;
 
                 System.err.println("\nStart Garbage Collection right now");
+                System.gc();
                 System.gc();
 
                 Reference<? extends Class<?>> dequeued = queue.remove(TIMEOUT);

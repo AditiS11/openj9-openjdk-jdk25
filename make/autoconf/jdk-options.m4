@@ -23,6 +23,10 @@
 # questions.
 #
 
+# ===========================================================================
+# (c) Copyright IBM Corp. 2022, 2024 All Rights Reserved
+# ===========================================================================
+
 ################################################################################
 # Set the debug level
 #    release: no debug information, all optimizations, no asserts.
@@ -190,15 +194,8 @@ AC_DEFUN_ONCE([JDKOPT_SETUP_JDK_OPTIONS],
   fi
   AC_SUBST(INCLUDE_SA)
 
-  # Setup default CDS alignment. On platforms where one build may run on machines with different
-  # page sizes, the JVM choses a compatible alignment to fit all possible page sizes. This slightly
-  # increases archive size.
-  # The only platform having this problem at the moment is Linux on aarch64, which may encounter
-  # three different page sizes: 4K, 64K, and if run on Mac m1 hardware, 16K.
+  # Setup default CDS alignment. For OpenJ9 it needs to be false.
   COMPATIBLE_CDS_ALIGNMENT_DEFAULT=false
-  if test "x$OPENJDK_TARGET_OS" = "xlinux" && test "x$OPENJDK_TARGET_CPU" = "xaarch64"; then
-    COMPATIBLE_CDS_ALIGNMENT_DEFAULT=auto
-  fi
 
   # Compress jars
   COMPRESS_JARS=false
@@ -213,13 +210,9 @@ AC_DEFUN_ONCE([JDKOPT_SETUP_JDK_OPTIONS],
   elif test "x$with_copyright_year" != x; then
     COPYRIGHT_YEAR="$with_copyright_year"
   elif test "x$SOURCE_DATE" != xupdated; then
-    if test "x$IS_GNU_DATE" = xyes; then
-      COPYRIGHT_YEAR=`$DATE --date=@$SOURCE_DATE +%Y`
-    else
-      COPYRIGHT_YEAR=`$DATE -j -f %s $SOURCE_DATE +%Y`
-    fi
+    COPYRIGHT_YEAR=`$JAVA $TOPDIR/make/src/classes/DateUtil.java --format=yyyy --date="$SOURCE_DATE_EPOCH"`
   else
-    COPYRIGHT_YEAR=`$DATE +'%Y'`
+    COPYRIGHT_YEAR=`$JAVA $TOPDIR/make/src/classes/DateUtil.java --format=yyyy`
   fi
   AC_SUBST(COPYRIGHT_YEAR)
 
@@ -760,7 +753,7 @@ AC_DEFUN([JDKOPT_ENABLE_DISABLE_COMPATIBLE_CDS_ALIGNMENT],
   UTIL_ARG_ENABLE(NAME: compatible-cds-alignment, DEFAULT: $COMPATIBLE_CDS_ALIGNMENT_DEFAULT,
       RESULT: ENABLE_COMPATIBLE_CDS_ALIGNMENT,
       DESC: [enable use alternative compatible cds core region alignment],
-      DEFAULT_DESC: [disabled except on linux-aarch64],
+      DEFAULT_DESC: [disabled],
       CHECKING_MSG: [if compatible cds region alignment enabled],
       CHECK_AVAILABLE: [
         AC_MSG_CHECKING([if CDS archive is available])
@@ -831,7 +824,7 @@ AC_DEFUN_ONCE([JDKOPT_SETUP_REPRODUCIBLE_BUILD],
       AC_MSG_RESULT([$SOURCE_DATE, from SOURCE_DATE_EPOCH])
     else
       # Tell makefiles to take the time from configure
-      SOURCE_DATE=$($DATE +"%s")
+      SOURCE_DATE=$($JAVA $TOPDIR/make/src/classes/DateUtil.java)
       AC_MSG_RESULT([$SOURCE_DATE, from 'current' (default)])
     fi
   elif test "x$with_source_date" = xupdated; then
@@ -839,7 +832,7 @@ AC_DEFUN_ONCE([JDKOPT_SETUP_REPRODUCIBLE_BUILD],
     AC_MSG_RESULT([determined at build time, from 'updated'])
   elif test "x$with_source_date" = xcurrent; then
     # Set the current time
-    SOURCE_DATE=$($DATE +"%s")
+    SOURCE_DATE=$($JAVA $TOPDIR/make/src/classes/DateUtil.java)
     AC_MSG_RESULT([$SOURCE_DATE, from 'current'])
   elif test "x$with_source_date" = xversion; then
     # Use the date from version-numbers.conf
@@ -871,11 +864,7 @@ AC_DEFUN_ONCE([JDKOPT_SETUP_REPRODUCIBLE_BUILD],
     # If we have a fixed value for SOURCE_DATE, we need to set SOURCE_DATE_EPOCH
     # for the rest of configure.
     SOURCE_DATE_EPOCH="$SOURCE_DATE"
-    if test "x$IS_GNU_DATE" = xyes; then
-      SOURCE_DATE_ISO_8601=`$DATE --utc --date="@$SOURCE_DATE" +"$ISO_8601_FORMAT_STRING" 2> /dev/null`
-    else
-      SOURCE_DATE_ISO_8601=`$DATE -u -j -f "%s" "$SOURCE_DATE" +"$ISO_8601_FORMAT_STRING" 2> /dev/null`
-    fi
+    SOURCE_DATE_ISO_8601=`$JAVA $TOPDIR/make/src/classes/DateUtil.java --date="$SOURCE_DATE" --format="yyyy-MM-dd'T'HH:mm:ss'Z'"`
   fi
 
   AC_SUBST(SOURCE_DATE)

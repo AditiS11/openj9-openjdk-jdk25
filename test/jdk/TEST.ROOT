@@ -2,6 +2,26 @@
 # Copyright (c) 2005, 2025, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
+# ===========================================================================
+# Portions Copyright 2018, 2022 IBM Corporation.
+# ===========================================================================
+# This code is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License version 2 only, as
+# published by the Free Software Foundation.
+#
+# IBM designates this particular file as subject to the "Classpath" exception 
+# as provided by IBM in the LICENSE file that accompanied this code.
+#
+# This code is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+# FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+# version 2 for more details (a copy is included in the LICENSE file that
+# accompanied this code).
+#
+# You should have received a copy of the GNU General Public License version
+# 2 along with this work; if not, see <http://www.gnu.org/licenses/>.
+# ===========================================================================
+#
 # This file identifies the root of the test-suite hierarchy.
 # It also contains test-suite configuration information.
 #
@@ -108,6 +128,7 @@ requires.properties= \
     vm.jvmci \
     vm.jvmci.enabled \
     vm.jvmti \
+    vm.openj9 \
     vm.cpu.features \
     container.support \
     systemd.support \
@@ -117,6 +138,9 @@ requires.properties= \
     jlink.runtime.linkable \
     jlink.packagedModules \
     jdk.static
+
+# Unset Hotspot VMProps ProdDefns requires class and replace with optional OpenJ9 class
+requires.extraPropDefns = [../../closed/test/jtreg-ext/requires/OpenJ9PropsExt.java]
 
 # Minimum jtreg version
 requiredVersion=7.5.1+1

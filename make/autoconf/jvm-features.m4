@@ -22,6 +22,9 @@
 # or visit www.oracle.com if you need additional information or have any
 # questions.
 #
+# ===========================================================================
+# (c) Copyright IBM Corp. 2023, 2024 All Rights Reserved
+# ===========================================================================
 
 ################################################################################
 # Terminology used in this file:
@@ -44,9 +47,8 @@
 m4_define(jvm_features_valid, m4_normalize( \
     ifdef([custom_jvm_features_valid], custom_jvm_features_valid) \
     \
-    cds compiler1 compiler2 dtrace epsilongc g1gc jfr jni-check \
-    jvmci jvmti link-time-opt management minimal opt-size parallelgc \
-    serialgc services shenandoahgc vm-structs zero zgc \
+    dtrace jfr \
+    link-time-opt management opt-size \
 ))
 
 # Deprecated JVM features (these are ignored, but with a warning)
@@ -231,7 +233,10 @@ AC_DEFUN_ONCE([JVM_FEATURES_CHECK_CDS],
 [
   JVM_FEATURES_CHECK_AVAILABILITY(cds, [
     AC_MSG_CHECKING([if platform is supported by CDS])
-    if test "x$OPENJDK_TARGET_OS" = xaix; then
+    if true; then
+      AC_MSG_RESULT([no, OpenJ9])
+      AVAILABLE=false
+    elif test "x$OPENJDK_TARGET_OS" = xaix; then
       AC_MSG_RESULT([no, $OPENJDK_TARGET_OS-$OPENJDK_TARGET_CPU])
       AVAILABLE=false
     else
@@ -276,7 +281,10 @@ AC_DEFUN_ONCE([JVM_FEATURES_CHECK_JVMCI],
 [
   JVM_FEATURES_CHECK_AVAILABILITY(jvmci, [
     AC_MSG_CHECKING([if platform is supported by JVMCI])
-    if test "x$OPENJDK_TARGET_CPU" = "xx86_64"; then
+    if true; then
+      AC_MSG_RESULT([no, OpenJ9])
+      AVAILABLE=false
+    elif test "x$OPENJDK_TARGET_CPU" = "xx86_64"; then
       AC_MSG_RESULT([yes])
     elif test "x$OPENJDK_TARGET_CPU" = "xaarch64"; then
       AC_MSG_RESULT([yes])
@@ -296,7 +304,10 @@ AC_DEFUN_ONCE([JVM_FEATURES_CHECK_SHENANDOAHGC],
 [
   JVM_FEATURES_CHECK_AVAILABILITY(shenandoahgc, [
     AC_MSG_CHECKING([if platform is supported by Shenandoah])
-    if test "x$OPENJDK_TARGET_CPU_ARCH" = "xx86" || \
+    if true; then
+      AC_MSG_RESULT([no, OpenJ9])
+      AVAILABLE=false
+    elif test "x$OPENJDK_TARGET_CPU_ARCH" = "xx86" || \
         test "x$OPENJDK_TARGET_CPU" = "xaarch64" || \
         test "x$OPENJDK_TARGET_CPU" = "xppc64le" || \
         test "x$OPENJDK_TARGET_CPU" = "xriscv64"; then
@@ -315,7 +326,10 @@ AC_DEFUN_ONCE([JVM_FEATURES_CHECK_ZGC],
 [
   JVM_FEATURES_CHECK_AVAILABILITY(zgc, [
     AC_MSG_CHECKING([if platform is supported by ZGC])
-    if test "x$OPENJDK_TARGET_CPU" = "xx86_64"; then
+    if true; then
+      AC_MSG_RESULT([no, OpenJ9])
+      AVAILABLE=false
+    elif test "x$OPENJDK_TARGET_CPU" = "xx86_64"; then
       if test "x$OPENJDK_TARGET_OS" = "xlinux" || \
           test "x$OPENJDK_TARGET_OS" = "xwindows" || \
           test "x$OPENJDK_TARGET_OS" = "xmacosx"; then
@@ -532,13 +546,6 @@ AC_DEFUN([JVM_FEATURES_VERIFY],
   fi
   if JVM_FEATURES_IS_ACTIVE(compiler2); then
     INCLUDE_COMPILER2="true"
-  fi
-
-  # Verify that we have at least one gc selected (i.e., feature named "*gc").
-  if ! JVM_FEATURES_IS_ACTIVE(.*gc); then
-      AC_MSG_NOTICE([At least one gc needed for variant '$variant'.])
-      AC_MSG_NOTICE([Specified features: '$JVM_FEATURES_ACTIVE'])
-      AC_MSG_ERROR([Cannot continue])
   fi
 ])
 

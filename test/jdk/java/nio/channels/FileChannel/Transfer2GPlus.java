@@ -22,6 +22,12 @@
  */
 
 /*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2022, 2022 All Rights Reserved
+ * ===========================================================================
+ */
+
+/*
  * @test
  * @bug 8271308
  * @summary Verify that transferTo() copies more than Integer.MAX_VALUE bytes
@@ -31,6 +37,7 @@
  * @key randomness
  */
 
+import java.io.File;
 import java.io.ByteArrayOutputStream;
 import java.io.FilterOutputStream;
 import java.io.IOException;
@@ -58,22 +65,27 @@ public class Transfer2GPlus {
 
     public static void main(String[] args) throws IOException {
         Path src = FileChannelUtils.createSparseTempFile("src", ".dat");
-        src.toFile().deleteOnExit();
-        long t0 = System.nanoTime();
-        byte[] b = createSrcFile(src);
-        long t1 = System.nanoTime();
-        System.out.printf("  Wrote large file in %d ns (%d ms) %n",
-                t1 - t0, TimeUnit.NANOSECONDS.toMillis(t1 - t0));
-        t0 = t1;
-        testToFileChannel(src, b);
-        t1 = System.nanoTime();
-        System.out.printf("  Copied to file channel in %d ns (%d ms) %n",
-                t1 - t0, TimeUnit.NANOSECONDS.toMillis(t1 - t0));
-        t0 = t1;
-        testToWritableByteChannel(src, b);
-        t1 = System.nanoTime();
-        System.out.printf("  Copied to byte channel in %d ns (%d ms) %n",
-                t1 - t0, TimeUnit.NANOSECONDS.toMillis(t1 - t0));
+        File srcFile = src.toFile();
+        srcFile.deleteOnExit();
+        try {
+            long t0 = System.nanoTime();
+            byte[] b = createSrcFile(src);
+            long t1 = System.nanoTime();
+            System.out.printf("  Wrote large file in %d ns (%d ms) %n",
+                    t1 - t0, TimeUnit.NANOSECONDS.toMillis(t1 - t0));
+            t0 = t1;
+            testToFileChannel(src, b);
+            t1 = System.nanoTime();
+            System.out.printf("  Copied to file channel in %d ns (%d ms) %n",
+                    t1 - t0, TimeUnit.NANOSECONDS.toMillis(t1 - t0));
+            t0 = t1;
+            testToWritableByteChannel(src, b);
+            t1 = System.nanoTime();
+            System.out.printf("  Copied to byte channel in %d ns (%d ms) %n",
+                    t1 - t0, TimeUnit.NANOSECONDS.toMillis(t1 - t0));
+        } finally {
+            srcFile.delete();
+        }
     }
 
     // Create a file of size LENGTH with EXTRA random bytes at offset BASE.
@@ -93,37 +105,42 @@ public class Transfer2GPlus {
     private static void testToFileChannel(Path src, byte[] expected)
         throws IOException {
         Path dst = Files.createTempFile("dst", ".dat");
-        dst.toFile().deleteOnExit();
-        try (FileChannel srcCh = FileChannel.open(src)) {
-            try (FileChannel dstCh = FileChannel.open(dst, READ, WRITE)) {
-                long total = 0L;
-                if ((total = srcCh.transferTo(0, LENGTH, dstCh)) < LENGTH) {
-                    if (!Platform.isLinux())
-                        throw new RuntimeException("Transfer too small: " + total);
+        File dstFile = dst.toFile();
+        dstFile.deleteOnExit();
+        try {
+            try (FileChannel srcCh = FileChannel.open(src)) {
+                try (FileChannel dstCh = FileChannel.open(dst, READ, WRITE)) {
+                    long total = 0L;
+                    if ((total = srcCh.transferTo(0, LENGTH, dstCh)) < LENGTH) {
+                        if (!Platform.isLinux())
+                            throw new RuntimeException("Transfer too small: " + total);
 
-                    // If this point is reached we're on Linux which cannot
-                    // transfer all LENGTH bytes in one call to sendfile(2),
-                    // so loop to get the rest.
-                    do {
-                        long n = srcCh.transferTo(total, LENGTH, dstCh);
-                        if (n == 0)
-                            break;
-                        total += n;
-                    } while (total < LENGTH);
+                        // If this point is reached we're on Linux which cannot
+                        // transfer all LENGTH bytes in one call to sendfile(2),
+                        // so loop to get the rest.
+                        do {
+                            long n = srcCh.transferTo(total, LENGTH, dstCh);
+                            if (n == 0)
+                                break;
+                            total += n;
+                        } while (total < LENGTH);
+                    }
+
+                    if (dstCh.size() < LENGTH)
+                        throw new RuntimeException("Target file too small: " +
+                            dstCh.size() + " < " + LENGTH);
+
+                    System.out.println("Transferred " + total + " bytes");
+
+                    dstCh.position(BASE);
+                    ByteBuffer bb = ByteBuffer.allocate(EXTRA);
+                    dstCh.read(bb);
+                    if (!Arrays.equals(bb.array(), expected))
+                        throw new RuntimeException("Unexpected values");
                 }
-
-                if (dstCh.size() < LENGTH)
-                    throw new RuntimeException("Target file too small: " +
-                        dstCh.size() + " < " + LENGTH);
-
-                System.out.println("Transferred " + total + " bytes");
-
-                dstCh.position(BASE);
-                ByteBuffer bb = ByteBuffer.allocate(EXTRA);
-                dstCh.read(bb);
-                if (!Arrays.equals(bb.array(), expected))
-                    throw new RuntimeException("Unexpected values");
             }
+        } finally {
+            dstFile.delete();
         }
     }
 

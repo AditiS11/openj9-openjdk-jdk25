@@ -22,6 +22,11 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2023, 2023 All Rights Reserved
+ * ===========================================================================
+ */
 
 package sun.security.ec;
 
@@ -109,6 +114,10 @@ public final class XDHPublicKeyImpl extends X509Key implements XECPublicKey {
     @Override
     public String getAlgorithm() {
         return "XDH";
+    }
+
+    byte[] getKeyAsByteArray() {
+        return getKey().toByteArray();
     }
 
     @java.io.Serial

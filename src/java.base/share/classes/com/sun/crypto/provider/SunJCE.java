@@ -22,6 +22,11 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2018, 2024 All Rights Reserved
+ * ===========================================================================
+ */
 
 package com.sun.crypto.provider;
 
@@ -31,6 +36,9 @@ import java.util.HashMap;
 import java.util.List;
 import static sun.security.util.SecurityConstants.PROVIDER_VER;
 import static sun.security.util.SecurityProviderConstants.*;
+
+import jdk.crypto.jniprovider.NativeCrypto;
+import jdk.internal.util.StaticProperty;
 
 /*
  * The "SunJCE" Cryptographic Service Provider.
@@ -82,6 +90,16 @@ import static sun.security.util.SecurityProviderConstants.*;
  */
 
 public final class SunJCE extends Provider {
+
+    /* The property 'jdk.nativeChaCha20' is used to control enablement of the native
+     * ChaCha20 implementation. ChaCha20 is only supported in OpenSSL 1.1.0 and above.
+     */
+    private static final boolean useNativeChaCha20Cipher = NativeCrypto.isAlgorithmEnabled("jdk.nativeChaCha20", "NativeChaCha20Cipher");
+
+    /* The property 'jdk.nativeGCM' is used to control enablement of the native
+     * GCM implementation.
+     */
+    private static final boolean useNativeGaloisCounterMode = NativeCrypto.isAlgorithmEnabled("jdk.nativeGCM", "NativeGaloisCounterMode");
 
     @java.io.Serial
     private static final long serialVersionUID = 6812507587804302833L;
@@ -265,18 +283,33 @@ public final class SunJCE extends Provider {
         attrs.put("SupportedModes", "GCM");
         attrs.put("SupportedKeyFormats", "RAW");
 
-        ps("Cipher", "AES/GCM/NoPadding",
-                "com.sun.crypto.provider.GaloisCounterMode$AESGCM", null,
-                attrs);
-        psA("Cipher", "AES_128/GCM/NoPadding",
-                "com.sun.crypto.provider.GaloisCounterMode$AES128",
-                attrs);
-        psA("Cipher", "AES_192/GCM/NoPadding",
-                "com.sun.crypto.provider.GaloisCounterMode$AES192",
-                attrs);
-        psA("Cipher", "AES_256/GCM/NoPadding",
-                "com.sun.crypto.provider.GaloisCounterMode$AES256",
-                attrs);
+        if (useNativeGaloisCounterMode && NativeCrypto.isAllowedAndLoaded()) {
+            ps("Cipher", "AES/GCM/NoPadding",
+                    "com.sun.crypto.provider.NativeGaloisCounterMode$AESGCM", null,
+                    attrs);
+            psA("Cipher", "AES_128/GCM/NoPadding",
+                    "com.sun.crypto.provider.NativeGaloisCounterMode$AES128",
+                    attrs);
+            psA("Cipher", "AES_192/GCM/NoPadding",
+                    "com.sun.crypto.provider.NativeGaloisCounterMode$AES192",
+                    attrs);
+            psA("Cipher", "AES_256/GCM/NoPadding",
+                    "com.sun.crypto.provider.NativeGaloisCounterMode$AES256",
+                    attrs);
+        } else {
+            ps("Cipher", "AES/GCM/NoPadding",
+                    "com.sun.crypto.provider.GaloisCounterMode$AESGCM", null,
+                    attrs);
+            psA("Cipher", "AES_128/GCM/NoPadding",
+                    "com.sun.crypto.provider.GaloisCounterMode$AES128",
+                    attrs);
+            psA("Cipher", "AES_192/GCM/NoPadding",
+                    "com.sun.crypto.provider.GaloisCounterMode$AES192",
+                    attrs);
+            psA("Cipher", "AES_256/GCM/NoPadding",
+                    "com.sun.crypto.provider.GaloisCounterMode$AES256",
+                    attrs);
+        }
 
         attrs.clear();
         attrs.put("SupportedModes", "CBC");
@@ -294,12 +327,25 @@ public final class SunJCE extends Provider {
 
         attrs.clear();
         attrs.put("SupportedKeyFormats", "RAW");
-        ps("Cipher",  "ChaCha20",
-                "com.sun.crypto.provider.ChaCha20Cipher$ChaCha20Only",
-                null, attrs);
-        psA("Cipher",  "ChaCha20-Poly1305",
-                "com.sun.crypto.provider.ChaCha20Cipher$ChaCha20Poly1305",
-                attrs);
+
+        if (useNativeChaCha20Cipher
+            && NativeCrypto.isAlgorithmAvailable("ChaCha20")
+            && (NativeCrypto.getVersionIfAvailable() >= NativeCrypto.OPENSSL_VERSION_1_1_0)
+        ) {
+            ps("Cipher", "ChaCha20",
+                    "com.sun.crypto.provider.NativeChaCha20Cipher$ChaCha20Only",
+                    null, attrs);
+            psA("Cipher", "ChaCha20-Poly1305",
+                    "com.sun.crypto.provider.NativeChaCha20Cipher$ChaCha20Poly1305",
+                    attrs);
+        } else {
+            ps("Cipher",  "ChaCha20",
+                    "com.sun.crypto.provider.ChaCha20Cipher$ChaCha20Only",
+                    null, attrs);
+            psA("Cipher",  "ChaCha20-Poly1305",
+                    "com.sun.crypto.provider.ChaCha20Cipher$ChaCha20Poly1305",
+                    attrs);
+        }
 
         // PBES1
         psA("Cipher", "PBEWithMD5AndDES",

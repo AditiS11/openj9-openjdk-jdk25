@@ -33,6 +33,12 @@
  * http://creativecommons.org/publicdomain/zero/1.0/
  */
 
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2022, 2022 All Rights Reserved
+ * ===========================================================================
+ */
+
 package java.util.concurrent;
 
 import java.io.ObjectStreamField;
@@ -71,6 +77,10 @@ import java.util.stream.Stream;
 import jdk.internal.misc.Unsafe;
 import jdk.internal.util.ArraysSupport;
 import jdk.internal.vm.annotation.Stable;
+
+/*[IF CRIU_SUPPORT]*/
+import openj9.internal.criu.NotCheckpointSafe;
+/*[ENDIF] CRIU_SUPPORT */
 
 /**
  * A hash table supporting full concurrency of retrievals and
@@ -1704,6 +1714,9 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * @throws RuntimeException or Error if the mappingFunction does so,
      *         in which case the mapping is left unestablished
      */
+    /*[IF CRIU_SUPPORT]*/
+    @NotCheckpointSafe
+    /*[ENDIF] CRIU_SUPPORT */
     public V computeIfAbsent(K key, Function<? super K, ? extends V> mappingFunction) {
         if (key == null || mappingFunction == null)
             throw new NullPointerException();

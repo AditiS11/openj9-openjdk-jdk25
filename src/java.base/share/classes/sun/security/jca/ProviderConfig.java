@@ -23,6 +23,12 @@
  * questions.
  */
 
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2023, 2024 All Rights Reserved
+ * ===========================================================================
+ */
+
 package sun.security.jca;
 
 import java.io.File;
@@ -32,6 +38,8 @@ import java.util.*;
 import java.security.*;
 
 import sun.security.util.PropertyExpander;
+
+import openj9.internal.security.RestrictedSecurity;
 
 /**
  * Class representing a configured provider which encapsulates configuration
@@ -152,6 +160,9 @@ final class ProviderConfig {
     Provider getProvider() {
         // volatile variable load
         Provider p = provider;
+        // There is RestrictedSecurity check in the ServiceLoader before the
+        // provider is initialized. So the check has already occurred for the
+        // provider where provider != null.
         if (p != null) {
             return p;
         }
@@ -162,6 +173,11 @@ final class ProviderConfig {
                 return p;
             }
             if (!shouldLoad()) {
+                return null;
+            }
+            if (!RestrictedSecurity.isProviderAllowed(provName)) {
+                // We're in restricted security mode which does not allow this provider,
+                // return without loading.
                 return null;
             }
 
@@ -286,6 +302,12 @@ final class ProviderConfig {
         }
     }
 
+/*[IF CRIU_SUPPORT]*/
+    static void reloadServices() {
+        ProviderLoader.INSTANCE.services.reload();
+    }
+/*[ENDIF] CRIU_SUPPORT */
+
     // Inner class for loading security providers listed in java.security file
     private static final class ProviderLoader {
         static final ProviderLoader INSTANCE = new ProviderLoader();
@@ -320,8 +342,12 @@ final class ProviderConfig {
                     if (debug != null) {
                         debug.println("Found SL Provider named " + pName);
                     }
-                    if (pName.equals(pn)) {
+                    if (p.getClass().getName().equals(pn)) {
                         return p;
+                    } else if (pName.equals(pn)) {
+                        if (!RestrictedSecurity.isEnabled()) {
+                            return p;
+                        }
                     }
                 } catch (ServiceConfigurationError |
                          InvalidParameterException ex) {

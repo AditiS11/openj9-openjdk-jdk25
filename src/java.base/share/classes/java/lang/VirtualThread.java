@@ -22,6 +22,11 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2022, 2025 All Rights Reserved
+ * ===========================================================================
+ */
 package java.lang;
 
 import java.util.Locale;
@@ -234,6 +239,7 @@ final class VirtualThread extends BaseVirtualThread {
     private static class VThreadContinuation extends Continuation {
         VThreadContinuation(VirtualThread vthread, Runnable task) {
             super(VTHREAD_SCOPE, wrap(vthread, task));
+            this.vthread = vthread;
         }
         @Override
         protected void onPinned(Continuation.Pinned reason) {
@@ -474,6 +480,7 @@ final class VirtualThread extends BaseVirtualThread {
      * return, the current thread is the virtual thread.
      */
     @ChangesCurrentThread
+    @JvmtiMountTransition
     @ReservedStackAccess
     private void mount() {
         // notify JVMTI before mount
@@ -504,6 +511,7 @@ final class VirtualThread extends BaseVirtualThread {
      * current thread is the current platform thread.
      */
     @ChangesCurrentThread
+    @JvmtiMountTransition
     @ReservedStackAccess
     private void unmount() {
         assert !Thread.holdsLock(interruptLock);
@@ -1078,8 +1086,11 @@ final class VirtualThread extends BaseVirtualThread {
             disableSuspendAndPreempt();
             try {
                 synchronized (interruptLock) {
-                    interrupted = false;
-                    carrierThread.clearInterrupt();
+                    oldValue = interrupted;
+                    if (oldValue) {
+                        interrupted = false;
+                        carrierThread.clearInterrupt();
+                    }
                 }
             } finally {
                 enableSuspendAndPreempt();
@@ -1123,6 +1134,7 @@ final class VirtualThread extends BaseVirtualThread {
                 }
                 // runnable, mounted
                 return Thread.State.RUNNABLE;
+            case BLOCKING:
             case PARKING:
             case TIMED_PARKING:
             case WAITING:
@@ -1138,7 +1150,6 @@ final class VirtualThread extends BaseVirtualThread {
             case TIMED_PINNED:
             case TIMED_WAIT:
                 return Thread.State.TIMED_WAITING;
-            case BLOCKING:
             case BLOCKED:
                 return Thread.State.BLOCKED;
             case TERMINATED:

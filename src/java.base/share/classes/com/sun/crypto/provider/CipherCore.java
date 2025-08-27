@@ -22,6 +22,11 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2018, 2025 All Rights Reserved
+ * ===========================================================================
+ */
 
 package com.sun.crypto.provider;
 
@@ -33,6 +38,8 @@ import java.security.spec.*;
 import javax.crypto.*;
 import javax.crypto.spec.*;
 import javax.crypto.BadPaddingException;
+
+import jdk.crypto.jniprovider.NativeCrypto;
 
 /**
  * This class represents the symmetric algorithms in its various modes
@@ -53,6 +60,11 @@ import javax.crypto.BadPaddingException;
  */
 
 final class CipherCore {
+
+    /* The property 'jdk.nativeCBC' is used to control enablement of the native
+     * CBC implementation.
+     */
+    private static final boolean useNativeCBC = NativeCrypto.isAlgorithmEnabled("jdk.nativeCBC", "CipherCore");
 
     /*
      * internal buffer
@@ -166,7 +178,17 @@ final class CipherCore {
         SymmetricCipher rawImpl = cipher.getEmbeddedCipher();
         if (modeUpperCase.equals("CBC")) {
             cipherMode = CBC_MODE;
-            cipher = new CipherBlockChaining(rawImpl);
+
+            /*
+             * Check whether native CBC is enabled and instantiate
+             * the NativeCipherBlockChaining class.
+             */
+            if (useNativeCBC && (blockSize == 16) && NativeCrypto.isAllowedAndLoaded()) {
+                cipher = new NativeCipherBlockChaining(rawImpl);
+            } else {
+                cipher = new CipherBlockChaining(rawImpl);
+            }
+
         } else if (modeUpperCase.equals("CTS")) {
             cipherMode = CTS_MODE;
             cipher = new CipherTextStealing(rawImpl);
@@ -298,6 +320,20 @@ final class CipherCore {
             }
         }
         return totalLen;
+    }
+
+    /**
+     * Get appropriate sized local working buffer. An additional block size is added
+     * for operations that will use the NativeCipherBlockChaining cipher.
+     *
+     * @see {@link NativeCipherBlockChaining#getOptionalLocalOpenSSLOutputBuffer(byte[], int, int)
+     */
+    private int getLocalWorkingBufferSize(int inputLen, boolean isDoFinal) {
+        int size = getOutputSizeByOperation(inputLen, isDoFinal);
+        if (cipher instanceof NativeCipherBlockChaining) {
+            size = Math.addExact(size, NativeCipherBlockChaining.OPENSSL_ENCRYPTION_RESIDUE);
+        }
+        return size;
     }
 
     /**
@@ -547,7 +583,7 @@ final class CipherCore {
 
         byte[] output;
         try {
-            output = new byte[getOutputSizeByOperation(inputLen, false)];
+            output = new byte[getLocalWorkingBufferSize(inputLen, false)];
             int len = update(input, inputOffset, inputLen, output,
                              0);
             if (len == output.length) {
@@ -725,13 +761,27 @@ final class CipherCore {
     byte[] doFinal(byte[] input, int inputOffset, int inputLen)
         throws IllegalBlockSizeException, BadPaddingException {
         try {
-            byte[] output = new byte[getOutputSizeByOperation(inputLen, true)];
-            byte[] finalBuf = prepareInputBuffer(input, inputOffset,
-                    inputLen, output, 0);
+            byte[] output = new byte[getLocalWorkingBufferSize(inputLen, true)];
+            int outputOffset = 0;
+            int outLen = 0;
+
+            if (inputLen > 0) {
+                /*
+                 * Call the update() method to get rid of as many bytes as
+                 * possible before potentially copying array.
+                 */
+                int updateOutLen = update(input, inputOffset, inputLen, output, outputOffset);
+                inputOffset = inputLen;
+                inputLen = 0;
+                outputOffset += updateOutLen;
+                outLen = updateOutLen;
+            }
+
+            byte[] finalBuf = prepareInputBuffer(input, inputOffset, inputLen, output, outputOffset);
             int finalOffset = (finalBuf == input) ? inputOffset : 0;
             int finalBufLen = (finalBuf == input) ? inputLen : finalBuf.length;
 
-            int outLen = fillOutputBuffer(finalBuf, finalOffset, output, 0,
+            outLen += fillOutputBuffer(finalBuf, finalOffset, output, outputOffset,
                     finalBufLen, input);
 
             endDoFinal();
@@ -795,13 +845,6 @@ final class CipherCore {
         int estOutSize = getOutputSizeByOperation(inputLen, true);
         int outputCapacity = checkOutputCapacity(output, outputOffset,
                 estOutSize);
-        int offset = outputOffset;
-        byte[] finalBuf = prepareInputBuffer(input, inputOffset,
-                inputLen, output, outputOffset);
-        byte[] internalOutput = null; // for decrypting only
-
-        int finalOffset = (finalBuf == input) ? inputOffset : 0;
-        int finalBufLen = (finalBuf == input) ? inputLen : finalBuf.length;
 
         if (decrypting) {
             // if the size of specified output buffer is less than
@@ -812,18 +855,44 @@ final class CipherCore {
             if (outputCapacity < estOutSize) {
                 cipher.save();
             }
+        }
+
+        int outLen = 0;
+        int estFinalBuffSize = estOutSize;
+        if (inputLen > 0) {
+            /*
+             * Call the update() method to get rid of as many bytes as
+             * possible before potentially copying array.
+             */
+            int updateOutLen = update(input, inputOffset, inputLen, output, outputOffset);
+            inputOffset = inputLen;
+            inputLen = 0;
+            outputOffset += updateOutLen;
+            outLen += updateOutLen;
+            estFinalBuffSize -= updateOutLen;
+        }
+
+        int offset = outputOffset;
+        byte[] finalBuf = prepareInputBuffer(input, inputOffset, inputLen, output, outputOffset);
+        byte[] internalOutput = null; // for decrypting only
+
+        int finalOffset = (finalBuf == input) ? inputOffset : 0;
+        int finalBufLen = (finalBuf == input) ? inputLen : finalBuf.length;
+
+        if (decrypting) {
             if (outputCapacity < estOutSize || padding != null) {
                 // create temporary output buffer if the estimated size is larger
                 // than the user-provided buffer or a padding needs to be removed
                 // before copying the unpadded result to the output buffer
-                internalOutput = new byte[estOutSize];
+                internalOutput = new byte[estFinalBuffSize];
                 offset = 0;
             }
         }
 
         byte[] outBuffer = (internalOutput != null) ? internalOutput : output;
-        int outLen = fillOutputBuffer(finalBuf, finalOffset, outBuffer,
+        int outBuffLen = fillOutputBuffer(finalBuf, finalOffset, outBuffer,
                 offset, finalBufLen, input);
+        outLen += outBuffLen;
 
         if (decrypting) {
 
@@ -837,7 +906,7 @@ final class CipherCore {
             // copy the result into user-supplied output buffer
             if (internalOutput != null) {
                 System.arraycopy(internalOutput, 0, output, outputOffset,
-                    outLen);
+                    outBuffLen);
                 // decrypt mode. Zero out output data that's not required
                 Arrays.fill(internalOutput, (byte) 0x00);
             }

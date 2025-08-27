@@ -23,8 +23,15 @@
  * questions.
  */
 
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2022, 2025 All Rights Reserved
+ * ===========================================================================
+ */
+
 package java.security;
 
+import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -58,6 +65,13 @@ import sun.security.jca.Providers;
 import sun.security.util.Debug;
 import sun.security.util.PropertyExpander;
 
+/*[IF CRIU_SUPPORT]*/
+import openj9.internal.criu.InternalCRIUSupport;
+import openj9.internal.criu.security.CRIUConfigurator;
+/*[ENDIF] CRIU_SUPPORT */
+
+import openj9.internal.security.RestrictedSecurity;
+
 /**
  * <p>This class centralizes all security properties and common security
  * methods. One of its primary uses is to manage providers.
@@ -78,6 +92,9 @@ public final class Security {
     /* Are we debugging? -- for developers */
     private static final Debug sdebug =
                         Debug.getInstance("properties");
+    /*[IF CRIU_SUPPORT]*/
+    private static final boolean criuDebug = Boolean.getBoolean("enable.j9internal.checkpoint.security.api.debug");
+    /*[ENDIF] CRIU_SUPPORT */
 
     /* The java.security properties */
     private static final Properties props = new Properties() {
@@ -110,6 +127,9 @@ public final class Security {
         private static final String EXTRA_SYS_PROP =
                 "java.security.properties";
 
+        private static final String EXTRA_SYS_PROP_LIST =
+                "java.security.propertiesList";
+
         private static Path currentPath;
 
         private static final Set<Path> activePaths = new HashSet<>();
@@ -118,7 +138,15 @@ public final class Security {
             // first load the master properties file to
             // determine the value of OVERRIDE_SEC_PROP
             loadMaster();
-            loadExtra();
+
+            // If java.security.propertiesList is present, it always takes precedence
+            // and java.security.properties will be ignored.
+            String propList = System.getProperty(EXTRA_SYS_PROP_LIST);
+            if ((propList != null) && !propList.isBlank()) {
+                loadExtraFromList(propList);
+            } else {
+                loadExtra();
+            }
         }
 
         static boolean isInclude(String key) {
@@ -160,6 +188,33 @@ public final class Security {
                                     "properties from " + propFile);
                             e.printStackTrace();
                         }
+                    }
+                }
+            }
+        }
+
+        private static void loadExtraFromList(String propList) {
+            if ("true".equalsIgnoreCase(props.getProperty(OVERRIDE_SEC_PROP))) {
+                for (String file : propList.split(File.pathSeparator)) {
+                    // propertiesList does not support OVERRIDE mode
+                    if (file.startsWith("=")) {
+                        throw new IllegalArgumentException(
+                                "java.security.propertiesList does not support '=' prefix: " + file);
+                    }
+
+                    if (sdebug != null) {
+                        sdebug.println("java.security.propertiesList list file: " + file);
+                    }
+
+                    LoadingMode mode = LoadingMode.APPEND;
+                    try {
+                        loadExtraHelper(file, mode);
+                    } catch (Exception e) {
+                        if (sdebug != null) {
+                            sdebug.println("unable to load security properties from list file: " + file);
+                            e.printStackTrace();
+                        }
+                        throw new RuntimeException("Failed to load security properties from list file: " + file, e);
                     }
                 }
             }
@@ -331,6 +386,21 @@ public final class Security {
                     props.getProperty(key));
             }
         }
+
+        /*[IF CRIU_SUPPORT]*/
+        // Check if CRIU checkpoint mode is enabled, if it is then reconfigure the security providers.
+        // If -XX:-CRIUSecProvider is specified, we don't need to configure the CRIUSec provider.
+        if (InternalCRIUSupport.isCheckpointAllowed() && InternalCRIUSupport.enableCRIUSecProvider()) {
+            CRIUConfigurator.setCRIUSecMode(props);
+        }
+        /*[ENDIF] CRIU_SUPPORT */
+
+        // Load restricted security mode properties.
+        boolean restrictedSecurityEnabled = RestrictedSecurity.configure(props);
+        if (sdebug != null) {
+            sdebug.println(restrictedSecurityEnabled ? "Restricted security mode enabled."
+                    : "Restricted security mode disabled.");
+        }
     }
 
     /**
@@ -468,7 +538,25 @@ public final class Security {
      */
     public static synchronized int insertProviderAt(Provider provider,
             int position) {
+
         ProviderList list = Providers.getFullProviderList();
+
+        /*[IF CRIU_SUPPORT]*/
+        if (InternalCRIUSupport.enableCRIUSecProvider()) {
+            for (Provider existingProvider : list.providers()) {
+                if ("CRIUSEC".equals(existingProvider.getName())) {
+                    if (criuDebug) {
+                        System.out.println("Trying to insert + " + provider.getName()
+                                + " during the pre-checkpoint which is not allowed.");
+                    }
+                    throw new RuntimeException("Inserting " + provider.getName()
+                            + " during the pre-checkpoint is not allowed");
+                }
+            }
+        }
+        CRIUConfigurator.invalidateAlgorithmCache();
+        /*[ENDIF] CRIU_SUPPORT */
+
         ProviderList newList = ProviderList.insertAt(list, provider, position - 1);
         if (list == newList) {
             return -1;
@@ -518,6 +606,10 @@ public final class Security {
      * @see #addProvider
      */
     public static synchronized void removeProvider(String name) {
+        /*[IF CRIU_SUPPORT]*/
+        CRIUConfigurator.invalidateAlgorithmCache();
+        /*[ENDIF] CRIU_SUPPORT */
+
         ProviderList list = Providers.getFullProviderList();
         ProviderList newList = ProviderList.remove(list, name);
         Providers.setProviderList(newList);
@@ -834,6 +926,10 @@ public final class Security {
      */
     public static void setProperty(String key, String datum) {
         SecPropLoader.checkReservedKey(key);
+
+        // Check whether the change to the property is allowed.
+        RestrictedSecurity.checkSetSecurityProperty(key);
+
         props.put(key, datum);
 
         SecurityPropertyModificationEvent spe = new SecurityPropertyModificationEvent();
@@ -1001,6 +1097,20 @@ public final class Security {
      * @since 1.4
      */
     public static Set<String> getAlgorithms(String serviceName) {
+
+        /*[IF CRIU_SUPPORT]*/
+        // Check if the CRIU algorithm cache is ready/valid and contains data. If true use that cached data.
+        if (CRIUConfigurator.isCachedAlgorithmsPresentAndReady()) {
+            if (criuDebug) {
+                System.out.println("Use CRIU cache for getAlgorithms()");
+            }
+            return CRIUConfigurator.getAlgorithms(serviceName);
+        } else {
+            if (criuDebug) {
+                System.out.println("Do not use CRIU cache for getAlgorithms()");
+            }
+        }
+        /*[ENDIF] CRIU_SUPPORT */
 
         if ((serviceName == null) || (serviceName.isEmpty()) ||
             (serviceName.endsWith("."))) {

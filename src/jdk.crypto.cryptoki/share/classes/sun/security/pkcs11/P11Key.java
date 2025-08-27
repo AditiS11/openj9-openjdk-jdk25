@@ -23,6 +23,12 @@
  * questions.
  */
 
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2022, 2024 All Rights Reserved
+ * ===========================================================================
+ */
+
 package sun.security.pkcs11;
 
 import java.io.*;
@@ -48,6 +54,7 @@ import sun.security.pkcs11.wrapper.*;
 import static sun.security.pkcs11.TemplateManager.O_GENERATE;
 import static sun.security.pkcs11.wrapper.PKCS11Constants.*;
 
+import sun.security.util.Debug;
 import sun.security.util.DerValue;
 import sun.security.util.Length;
 import sun.security.util.ECUtil;
@@ -71,6 +78,8 @@ abstract class P11Key implements Key, Length {
 
     @Serial
     private static final long serialVersionUID = -2575874101938349339L;
+
+    private static final Debug debug = Debug.getInstance("p11key");
 
     private static final String PUBLIC = "public";
     private static final String PRIVATE = "private";
@@ -353,6 +362,24 @@ abstract class P11Key implements Key, Length {
                     new CK_ATTRIBUTE(CKA_SENSITIVE),
                     new CK_ATTRIBUTE(CKA_EXTRACTABLE),
         });
+
+        if ((SunPKCS11.mysunpkcs11 != null) && !SunPKCS11.isExportWrapKey.get()
+            && ("AES".equals(algorithm) || "TripleDES".equals(algorithm))
+        ) {
+            if (attrs[0].getBoolean() || attrs[1].getBoolean() || (attrs[2].getBoolean() == false)) {
+                try {
+                    byte[] key = SunPKCS11.mysunpkcs11.exportKey(session.id(), attrs, keyID);
+                    SecretKey secretKey = new SecretKeySpec(key, algorithm);
+                    return new P11SecretKeyFIPS(session, keyID, algorithm, keyLength, attrs, secretKey);
+                } catch (PKCS11Exception e) {
+                    // Attempt failed, create a P11SecretKey object.
+                    if (debug != null) {
+                        debug.println("Attempt failed, creating a SecretKey object for " + algorithm);
+                    }
+                }
+            }
+        }
+
         return new P11SecretKey(session, keyID, algorithm, keyLength, attrs);
     }
 
@@ -366,6 +393,21 @@ abstract class P11Key implements Key, Length {
             new CK_ATTRIBUTE(CKA_SENSITIVE),
             new CK_ATTRIBUTE(CKA_EXTRACTABLE),
         });
+        if ((SunPKCS11.mysunpkcs11 != null)
+            && (attrs[0].getBoolean()
+                || attrs[1].getBoolean()
+                || (attrs[2].getBoolean() == false))
+        ) {
+            try {
+                byte[] key = SunPKCS11.mysunpkcs11.exportKey(session.id(), attrs, keyID);
+                SecretKey secretKey = new SecretKeySpec(key, algorithm);
+                return new P11PBKDFKey(session, keyID, algorithm, keyLength, attrs, password, salt, iterationCount, secretKey);
+            } catch (PKCS11Exception e) {
+                if (debug != null) {
+                    debug.println("Attempt failed, creating a regular P11PBKDFKey for " + algorithm);
+                }
+            }
+        }
         return new P11PBKDFKey(session, keyID, algorithm, keyLength,
                 attrs, password, salt, iterationCount);
     }
@@ -411,6 +453,36 @@ abstract class P11Key implements Key, Length {
                 (attrs[0].getBoolean() && P11Util.isNSS(session.token)) ||
                 attrs[1].getBoolean() || !attrs[2].getBoolean();
 
+        if (keySensitive && (SunPKCS11.mysunpkcs11 != null) && "RSA".equals(algorithm)) {
+            try {
+                byte[] key = SunPKCS11.mysunpkcs11.exportKey(session.id(), attrs, keyID);
+                RSAPrivateKey rsaPrivKey = RSAPrivateCrtKeyImpl.newKey(KeyType.RSA, "PKCS#8", key);
+                if (rsaPrivKey instanceof RSAPrivateCrtKeyImpl privImpl) {
+                    return new P11RSAPrivateKeyFIPS(session, keyID, algorithm, keyLength, attrs, privImpl);
+                } else {
+                    return new P11RSAPrivateNonCRTKeyFIPS(session, keyID, algorithm, keyLength, attrs, rsaPrivKey);
+                }
+            } catch (PKCS11Exception | InvalidKeyException e) {
+                // Attempt failed, create a P11PrivateKey object.
+                if (debug != null) {
+                    debug.println("Attempt failed, creating a P11PrivateKey object for RSA");
+                }
+            }
+        }
+
+        if (keySensitive && (SunPKCS11.mysunpkcs11 != null) && "EC".equals(algorithm)) {
+            try {
+                byte[] key = SunPKCS11.mysunpkcs11.exportKey(session.id(), attrs, keyID);
+                ECPrivateKey ecPrivKey = ECUtil.decodePKCS8ECPrivateKey(key);
+                return new P11ECPrivateKeyFIPS(session, keyID, algorithm, keyLength, attrs, ecPrivKey);
+            } catch (PKCS11Exception | InvalidKeySpecException e) {
+                // Attempt failed, create a P11PrivateKey object.
+                if (debug != null) {
+                    debug.println("Attempt failed, creating a P11PrivateKey object for EC");
+                }
+            }
+        }
+
         return switch (algorithm) {
             case "RSA" -> P11RSAPrivateKeyInternal.of(session, keyID, algorithm,
                     keyLength, attrs, keySensitive);
@@ -448,20 +520,52 @@ abstract class P11Key implements Key, Length {
         }
     }
 
+    private static final class P11SecretKeyFIPS extends P11Key implements SecretKey {
+        @Serial
+        private static final long serialVersionUID = -9186806495402041696L;
+        private final SecretKey key;
+
+        P11SecretKeyFIPS(Session session, long keyID, String algorithm,
+                int keyLength, CK_ATTRIBUTE[] attributes, SecretKey key) {
+            super(SECRET, session, keyID, algorithm, keyLength, attributes);
+            this.key = key;
+        }
+
+        @Override
+        public String getFormat() {
+            return "RAW";
+        }
+
+        @Override
+        byte[] getEncodedInternal() {
+            return key.getEncoded();
+        }
+
+    }
+
     static class P11SecretKey extends P11Key implements SecretKey {
         @Serial
         private static final long serialVersionUID = -7828241727014329084L;
 
         private volatile byte[] encoded; // guard by double-checked locking
 
+        private final SecretKey key;
+
         P11SecretKey(Session session, long keyID, String algorithm,
                 int keyLength, CK_ATTRIBUTE[] attrs) {
             super(SECRET, session, keyID, algorithm, keyLength, attrs);
+            this.key = null;
+        }
+
+        P11SecretKey(Session session, long keyID, String algorithm,
+                int keyLength, CK_ATTRIBUTE[] attrs, SecretKey key) {
+            super(SECRET, session, keyID, algorithm, keyLength, attrs);
+            this.key = key;
         }
 
         public String getFormat() {
             token.ensureValid();
-            if (sensitive || !extractable || (isNSS && tokenObject)) {
+            if ((key == null) && (sensitive || !extractable || (isNSS && tokenObject))) {
                 return null;
             } else {
                 return "RAW";
@@ -472,6 +576,10 @@ abstract class P11Key implements Key, Length {
             token.ensureValid();
             if (getFormat() == null) {
                 return null;
+            }
+
+            if (key != null) {
+                return key.getEncoded();
             }
 
             byte[] b = encoded;
@@ -514,6 +622,16 @@ abstract class P11Key implements Key, Length {
                 int keyLength, CK_ATTRIBUTE[] attributes,
                 char[] password, byte[] salt, int iterationCount) {
             super(session, keyID, keyAlgo, keyLength, attributes);
+            this.password = password.clone();
+            this.salt = salt.clone();
+            this.iterationCount = iterationCount;
+        }
+
+        // fips
+        P11PBKDFKey(Session session, long keyID, String algorithm,
+                int keyLength, CK_ATTRIBUTE[] attributes,
+                char[] password, byte[] salt, int iterationCount, SecretKey key) {
+            super(session, keyID, algorithm, keyLength, attributes, key);
             this.password = password.clone();
             this.salt = salt.clone();
             this.iterationCount = iterationCount;
@@ -664,6 +782,70 @@ abstract class P11Key implements Key, Length {
         }
     }
 
+    // RSA CRT private key when in FIPS mode
+    private static final class P11RSAPrivateKeyFIPS extends P11Key
+                implements RSAPrivateCrtKey {
+
+        private static final long serialVersionUID = 9215872438913515220L;
+        private final RSAPrivateCrtKeyImpl key;
+
+        P11RSAPrivateKeyFIPS(Session session, long keyID, String algorithm,
+                int keyLength, CK_ATTRIBUTE[] attrs, RSAPrivateCrtKeyImpl key) {
+            super(PRIVATE, session, keyID, algorithm, keyLength, attrs);
+            this.key = key;
+        }
+
+        @Override
+        public String getFormat() {
+            return "PKCS#8";
+        }
+
+        @Override
+        synchronized byte[] getEncodedInternal() {
+            return key.getEncoded();
+        }
+
+        @Override
+        public BigInteger getModulus() {
+            return key.getModulus();
+        }
+
+        @Override
+        public BigInteger getPublicExponent() {
+            return key.getPublicExponent();
+        }
+
+        @Override
+        public BigInteger getPrivateExponent() {
+            return key.getPrivateExponent();
+        }
+
+        @Override
+        public BigInteger getPrimeP() {
+            return key.getPrimeP();
+        }
+
+        @Override
+        public BigInteger getPrimeQ() {
+            return key.getPrimeQ();
+        }
+
+        @Override
+        public BigInteger getPrimeExponentP() {
+            return key.getPrimeExponentP();
+        }
+
+        @Override
+        public BigInteger getPrimeExponentQ() {
+            return key.getPrimeExponentQ();
+        }
+
+        @Override
+        public BigInteger getCrtCoefficient() {
+            return key.getCrtCoefficient();
+        }
+    }
+
     // RSA CRT private key
     private static final class P11RSAPrivateKey extends P11RSAPrivateKeyInternal
             implements RSAPrivateCrtKey {
@@ -739,6 +921,40 @@ abstract class P11Key implements Key, Length {
         }
         public BigInteger getCrtCoefficient() {
             return coeff;
+        }
+    }
+
+    // RSA non-CRT private key in FIPS mode
+    private static final class P11RSAPrivateNonCRTKeyFIPS extends P11Key
+                implements RSAPrivateKey {
+
+        private static final long serialVersionUID = 1137764983777411481L;
+        private final RSAPrivateKey key;
+
+        P11RSAPrivateNonCRTKeyFIPS(Session session, long keyID, String algorithm,
+                int keyLength, CK_ATTRIBUTE[] attributes, RSAPrivateKey key) {
+            super(PRIVATE, session, keyID, algorithm, keyLength, attributes);
+            this.key = key;
+        }
+
+        @Override
+        public String getFormat() {
+            return "PKCS#8";
+        }
+
+        @Override
+        synchronized byte[] getEncodedInternal() {
+            return key.getEncoded();
+        }
+
+        @Override
+        public BigInteger getModulus() {
+            return key.getModulus();
+        }
+
+        @Override
+        public BigInteger getPrivateExponent() {
+            return key.getPrivateExponent();
         }
     }
 
@@ -1246,6 +1462,39 @@ abstract class P11Key implements Key, Length {
         public ECParameterSpec getParams() {
             fetchValues();
             return params;
+        }
+    }
+
+    // EC private key when in FIPS mode
+    private static final class P11ECPrivateKeyFIPS extends P11Key
+                                                implements ECPrivateKey {
+        private static final long serialVersionUID = -7786054399510515515L;
+        private final ECPrivateKey key;
+
+        P11ECPrivateKeyFIPS(Session session, long keyID, String algorithm,
+                int keyLength, CK_ATTRIBUTE[] attrs, ECPrivateKey key) {
+            super(PRIVATE, session, keyID, algorithm, keyLength, attrs);
+            this.key = key;
+        }
+
+        @Override
+        public String getFormat() {
+            return "PKCS#8";
+        }
+
+        @Override
+        synchronized byte[] getEncodedInternal() {
+            return key.getEncoded();
+        }
+
+        @Override
+        public BigInteger getS() {
+            return key.getS();
+        }
+
+        @Override
+        public ECParameterSpec getParams() {
+            return key.getParams();
         }
     }
 

@@ -23,6 +23,12 @@
  * questions.
  */
 
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2022, 2024 All Rights Reserved
+ * ===========================================================================
+ */
+
 package java.lang.invoke;
 
 import jdk.internal.access.JavaLangInvokeAccess;
@@ -1562,7 +1568,7 @@ abstract class MethodHandleImpl {
             }
 
             @Override
-            public MethodHandle nativeMethodHandle(NativeEntryPoint nep) {
+            public MethodHandle nativeMethodHandle(MethodHandle nep) {
                 return NativeMethodHandle.make(nep);
             }
 

@@ -22,10 +22,17 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2018, 2023 All Rights Reserved
+ * ===========================================================================
+ */
 
 package sun.security.rsa;
 
 import sun.security.jca.JCAUtil;
+
+import jdk.crypto.jniprovider.NativeCrypto;
 
 import javax.crypto.BadPaddingException;
 import java.math.BigInteger;
@@ -54,6 +61,11 @@ import java.util.concurrent.locks.ReentrantLock;
  * @author  Andreas Sterbenz
  */
 public final class RSACore {
+
+    /* The property 'jdk.nativeRSA' is used to control enablement of the native
+     * RSA implementation.
+     */
+    private static boolean useNativeRsa = NativeCrypto.isAlgorithmEnabled("jdk.nativeRSA", "RSACore");
 
     // globally enable/disable use of blinding
     private static final boolean ENABLE_BLINDING = true;
@@ -105,6 +117,13 @@ public final class RSACore {
      */
     public static byte[] rsa(byte[] msg, RSAPublicKey key)
             throws BadPaddingException {
+        if (useNativeRsa && key instanceof sun.security.rsa.RSAPublicKeyImpl rsaKey && NativeCrypto.isAllowedAndLoaded()) {
+            byte[] ret = NativeRSACore.rsa(msg, rsaKey);
+            if (ret != null) {
+                return ret;
+            }
+            useNativeRsa = false;
+        }
         return crypt(msg, key.getModulus(), key.getPublicExponent());
     }
 
@@ -127,6 +146,13 @@ public final class RSACore {
     public static byte[] rsa(byte[] msg, RSAPrivateKey key, boolean verify)
             throws BadPaddingException {
         if (key instanceof RSAPrivateCrtKey) {
+            if (useNativeRsa && key instanceof sun.security.rsa.RSAPrivateCrtKeyImpl rsaKey && NativeCrypto.isAllowedAndLoaded()) {
+                byte[] ret = NativeRSACore.rsa(msg, rsaKey, verify);
+                if (ret != null) {
+                    return ret;
+                }
+                useNativeRsa = false;
+            }
             return crtCrypt(msg, (RSAPrivateCrtKey)key, verify);
         } else {
             return priCrypt(msg, key.getModulus(), key.getPrivateExponent());
@@ -393,13 +419,13 @@ public final class RSACore {
             }
 
             if (e != null) {
-                u = u.modPow(e, n);   // e: the public exponent
-                                      // u: random ^ e
-                                      // v: random ^ (-1)
+                u = u.modPow(e, n); // e: the public exponent
+                                    // u: random ^ e
+                                    // v: random ^ (-1)
             } else {
-                v = v.modPow(d, n);   // d: the private exponent
-                                      // u: random
-                                      // v: random ^ (-d)
+                v = v.modPow(d, n); // d: the private exponent
+                                    // u: random
+                                    // v: random ^ (-d)
             }
         }
 

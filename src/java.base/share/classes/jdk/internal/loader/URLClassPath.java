@@ -23,6 +23,12 @@
  * questions.
  */
 
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 1997, 2025 All Rights Reserved
+ * ===========================================================================
+ */
+
 package jdk.internal.loader;
 
 import java.io.Closeable;
@@ -62,8 +68,10 @@ import java.util.zip.ZipFile;
 import jdk.internal.access.JavaNetURLAccess;
 import jdk.internal.access.JavaUtilZipFileAccess;
 import jdk.internal.access.SharedSecrets;
+import jdk.internal.misc.VM;                                    //OpenJ9-shared_classes_misc
 import sun.net.util.URLUtil;
 import sun.net.www.ParseUtil;
+import com.ibm.sharedclasses.spi.SharedClassProvider;           //OpenJ9-shared_classes_misc
 
 /**
  * This class is used to maintain a search path of URLs for loading classes
@@ -113,6 +121,21 @@ public class URLClassPath {
     /* The jar protocol handler to use when creating new URLs */
     private final URLStreamHandler jarHandler;
 
+    /* Fields for shared classes support starts. */                             //OpenJ9-shared_classes_misc
+    /* Shared classes helper. Must be kept up to date with any search path      //OpenJ9-shared_classes_misc
+     * changes.                                                                 //OpenJ9-shared_classes_misc
+     */                                                                         //OpenJ9-shared_classes_misc
+    private SharedClassProvider sharedClassServiceProvider;                     //OpenJ9-shared_classes_misc
+                                                                                //OpenJ9-shared_classes_misc
+    /* URLs corresponding to the search path of loaders. */                     //OpenJ9-shared_classes_misc
+    private ArrayList<URL> loaderURLs;                                          //OpenJ9-shared_classes_misc
+                                                                                //OpenJ9-shared_classes_misc
+    /* The number of entries, starting at the 0th element, into the search path //OpenJ9-shared_classes_misc
+     * that have been updated with the shared classes helper.                   //OpenJ9-shared_classes_misc
+     */                                                                         //OpenJ9-shared_classes_misc
+    private int updatedSearchPathCount = -1;                                    //OpenJ9-shared_classes_misc
+    /* Fields for shared classes support ends. */                               //OpenJ9-shared_classes_misc
+
     /* Whether this URLClassLoader has been closed yet */
     private boolean closed = false;
 
@@ -143,6 +166,83 @@ public class URLClassPath {
             jarHandler = null;
         }
     }
+
+    /* Methods for shared classes support starts. */                            //OpenJ9-shared_classes_misc
+    /* Shared classes version of URLClassPath(URL[], URLStreamHandlerFactory).  //OpenJ9-shared_classes_misc
+     */                                                                         //OpenJ9-shared_classes_misc
+    public URLClassPath(URL[] urls, URLStreamHandlerFactory factory,            //OpenJ9-shared_classes_misc
+                        SharedClassProvider helper) {                           //OpenJ9-shared_classes_misc
+        this(urls, factory);                                                    //OpenJ9-shared_classes_misc
+        /* Set shared classes helper */                                         //OpenJ9-shared_classes_misc
+        sharedClassServiceProvider = helper;                                    //OpenJ9-shared_classes_misc
+        if (usingSharedClasses()) {                                             //OpenJ9-shared_classes_misc
+            /* create list to hold search path URLs */                          //OpenJ9-shared_classes_misc
+            loaderURLs = new ArrayList<>(urls.length);                          //OpenJ9-shared_classes_misc
+        }                                                                       //OpenJ9-shared_classes_misc
+    }                                                                           //OpenJ9-shared_classes_misc
+                                                                                //OpenJ9-shared_classes_misc
+    /* Method to set SharedClassProvider and loaderURLs. */                     //OpenJ9-shared_classes_misc
+    public synchronized void setSharedClassProvider(SharedClassProvider helper) { //OpenJ9-shared_classes_misc
+        if (null == sharedClassServiceProvider) {                               //OpenJ9-shared_classes_misc
+            sharedClassServiceProvider = helper;                                //OpenJ9-shared_classes_misc
+        }                                                                       //OpenJ9-shared_classes_misc
+        if (usingSharedClasses() && null == loaderURLs) {                       //OpenJ9-shared_classes_misc
+            loaderURLs = new ArrayList<>(path.size());                          //OpenJ9-shared_classes_misc
+        }                                                                       //OpenJ9-shared_classes_misc
+    }                                                                           //OpenJ9-shared_classes_misc
+                                                                                //OpenJ9-shared_classes_misc
+    /* Return true if shared classes support is active, otherwise false.        //OpenJ9-shared_classes_misc
+     */                                                                         //OpenJ9-shared_classes_misc
+    private boolean usingSharedClasses() {                                      //OpenJ9-shared_classes_misc
+        return (sharedClassServiceProvider != null);                            //OpenJ9-shared_classes_misc
+    }                                                                           //OpenJ9-shared_classes_misc
+                                                                                //OpenJ9-shared_classes_misc
+    /* When using shared classes the shared classes helper's classpath must     //OpenJ9-shared_classes_misc
+     * match this URLClassPath's search path (i.e. the list of loaders). This   //OpenJ9-shared_classes_misc
+     * function "confirms" with the shared classes helper the search path up    //OpenJ9-shared_classes_misc
+     * to the highest index (starting from zero) from which we have loaded a    //OpenJ9-shared_classes_misc
+     * resource.                                                                //OpenJ9-shared_classes_misc
+     *                                                                          //OpenJ9-shared_classes_misc
+     * @param index the index into the search path that should be updated.      //OpenJ9-shared_classes_misc
+     *        If the search path up to the supplied index has not already been  //OpenJ9-shared_classes_misc
+     *        updated, the shared classes helper's classpath will be extended   //OpenJ9-shared_classes_misc
+     *        so that the supplied index will be contained.                     //OpenJ9-shared_classes_misc
+     *        If that index has already been updated, no action will be taken.  //OpenJ9-shared_classes_misc
+     * @throws IllegalStateException if an error occurs when updating the       //OpenJ9-shared_classes_misc
+     *        the search path with the shared classes helper or if the search   //OpenJ9-shared_classes_misc
+     *        path could not be extended to include index.                      //OpenJ9-shared_classes_misc
+     */                                                                         //OpenJ9-shared_classes_misc
+    private synchronized void updateClasspathWithSharedClassesHelper(int index) { //OpenJ9-shared_classes_misc
+        /* do nothing if not using shared classes */                            //OpenJ9-shared_classes_misc
+        if (!usingSharedClasses()) {                                            //OpenJ9-shared_classes_misc
+            return;                                                             //OpenJ9-shared_classes_misc
+        }                                                                       //OpenJ9-shared_classes_misc
+                                                                                //OpenJ9-shared_classes_misc
+        /* Update the loader search path with the shared classes helper if      //OpenJ9-shared_classes_misc
+         * the search path has expanded since the previous update.              //OpenJ9-shared_classes_misc
+         */                                                                     //OpenJ9-shared_classes_misc
+        int searchPathSize = loaderURLs.size();                                 //OpenJ9-shared_classes_misc
+        if (updatedSearchPathCount < searchPathSize) {                          //OpenJ9-shared_classes_misc
+            URL[] newSearchPath = loaderURLs.toArray(new URL[searchPathSize]);  //OpenJ9-shared_classes_misc
+                                                                                //OpenJ9-shared_classes_misc
+            /* update shared classes helper with the extended search path */    //OpenJ9-shared_classes_misc
+            if (sharedClassServiceProvider.setURLClasspath(newSearchPath)) {    //OpenJ9-shared_classes_misc
+                updatedSearchPathCount = searchPathSize; /*ibm@96437*/ /* ibm@96499*/ //OpenJ9-shared_classes_misc
+            } else {                                                            //OpenJ9-shared_classes_misc
+                throw new IllegalStateException(                                //OpenJ9-shared_classes_misc
+                            "Unable to set shared class path");                 //OpenJ9-shared_classes_misc
+            }                                                                   //OpenJ9-shared_classes_misc
+                                                                                //OpenJ9-shared_classes_misc
+        }                                                                       //OpenJ9-shared_classes_misc
+                                                                                //OpenJ9-shared_classes_misc
+        if (index >= searchPathSize) {                                          //OpenJ9-shared_classes_misc
+            /* Unable to extend the search path to contain supplied index. */   //OpenJ9-shared_classes_misc
+            throw new IllegalStateException(                                    //OpenJ9-shared_classes_misc
+                        "Unable to extend shared class path to index " + index); //OpenJ9-shared_classes_misc
+        }                                                                       //OpenJ9-shared_classes_misc
+                                                                                //OpenJ9-shared_classes_misc
+    }                                                                           //OpenJ9-shared_classes_misc
+    /* Methods for shared classes support ends. */                              //OpenJ9-shared_classes_misc
 
     public URLClassPath(URL[] urls) {
         this(urls, null);
@@ -331,6 +431,9 @@ public class URLClassPath {
         for (int i = 0; (loader = getLoader(i)) != null; i++) {
             Resource res = loader.getResource(name);
             if (res != null) {
+                res.setClasspathLoadIndex(i); /* Store the classpath index that this resource came from. */ //OpenJ9-shared_classes_misc
+                /* Update the search path with shared Classes Helper, this is only if we are using shared classes. */ //OpenJ9-shared_classes_misc
+                updateClasspathWithSharedClassesHelper(i);                      //OpenJ9-shared_classes_misc
                 return res;
             }
         }
@@ -427,6 +530,22 @@ public class URLClassPath {
             // Finally, add the Loader to the search path.
             loaders.add(loader);
             lmap.put(urlNoFragString, loader);
+            if (usingSharedClasses()) {                                                  //OpenJ9-shared_classes_misc
+                /* update search path URLs */                                            //OpenJ9-shared_classes_misc
+                loaderURLs.add(url);                                                     //OpenJ9-shared_classes_misc
+            } else {                                                                     //OpenJ9-shared_classes_misc
+                if (!VM.isModuleSystemInited()) {                                        //OpenJ9-shared_classes_misc
+                    /* usingSharedClasses() is false. If the module system is not        //OpenJ9-shared_classes_misc
+                     * initialized yet, it is likely that BuiltinClassLoader             //OpenJ9-shared_classes_misc
+                     * hasn't called setSharedClassProvider(). We still need to          //OpenJ9-shared_classes_misc
+                     * update loaderURLs in this case.                                   //OpenJ9-shared_classes_misc
+                     */                                                                  //OpenJ9-shared_classes_misc
+                    if (null == loaderURLs) {                                            //OpenJ9-shared_classes_misc
+                        loaderURLs = new ArrayList<>(path.size());                       //OpenJ9-shared_classes_misc
+                    }                                                                    //OpenJ9-shared_classes_misc
+                    loaderURLs.add(url);                                                 //OpenJ9-shared_classes_misc
+                }                                                                        //OpenJ9-shared_classes_misc
+            }                                                                            //OpenJ9-shared_classes_misc
         }
         return loaders.get(index);
     }
@@ -457,12 +576,12 @@ public class URLClassPath {
                 // extract the nested URL
                 @SuppressWarnings("deprecation")
                 URL nestedUrl = new URL(file.substring(0, file.length() - 2));
-                return new JarLoader(nestedUrl, jarHandler);
+                return new JarLoader(nestedUrl, jarHandler, usingSharedClasses()); //OpenJ9-shared_classes_misc
             } else {
                 return new Loader(url);
             }
         } else {
-            return new JarLoader(url, jarHandler);
+            return new JarLoader(url, jarHandler, usingSharedClasses()); //OpenJ9-shared_classes_misc
         }
     }
 
@@ -606,6 +725,7 @@ public class URLClassPath {
     private static class JarLoader extends Loader {
         private JarFile jar;
         private final URL csu;
+        private final boolean usingSharedClasses;                               //OpenJ9-shared_classes_misc
         private boolean closed = false;
         private static final JavaUtilZipFileAccess zipAccess =
                 SharedSecrets.getJavaUtilZipFileAccess();
@@ -614,10 +734,11 @@ public class URLClassPath {
          * Creates a new JarLoader for the specified URL referring to
          * a JAR file.
          */
-        private JarLoader(URL url, URLStreamHandler jarHandler)
+        private JarLoader(URL url, URLStreamHandler jarHandler, boolean usingSharedClasses) //OpenJ9-shared_classes_misc
             throws IOException
         {
             super(newURL("jar", "", -1, url + "!/", jarHandler));
+            this.usingSharedClasses = usingSharedClasses;                       //OpenJ9-shared_classes_misc
             csu = url;
             ensureOpen();
         }

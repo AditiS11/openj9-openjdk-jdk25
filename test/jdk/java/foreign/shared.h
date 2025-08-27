@@ -21,6 +21,12 @@
  * questions.
  */
 
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2024, 2024 All Rights Reserved
+ * ===========================================================================
+ */
+
 #include "export.h"
 
 #ifdef __clang__
@@ -29,10 +35,6 @@
 #pragma GCC optimize ("O0")
 #elif defined _MSC_BUILD
 #pragma optimize( "", off )
-#endif
-
-#ifdef _AIX
-#pragma align (natural)
 #endif
 
 struct S_I { int p0; };
@@ -119,7 +121,3 @@ struct S_PPI { void* p0; void* p1; int p2; };
 struct S_PPF { void* p0; void* p1; float p2; };
 struct S_PPD { void* p0; void* p1; double p2; };
 struct S_PPP { void* p0; void* p1; void* p2; };
-
-#ifdef _AIX
-#pragma align (reset)
-#endif

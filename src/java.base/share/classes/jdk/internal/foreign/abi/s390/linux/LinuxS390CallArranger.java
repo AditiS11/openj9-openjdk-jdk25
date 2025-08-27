@@ -24,6 +24,12 @@
  * questions.
  */
 
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2023, 2023 All Rights Reserved
+ * ===========================================================================
+ */
+
 package jdk.internal.foreign.abi.s390.linux;
 
 import jdk.internal.foreign.Utils;
@@ -35,6 +41,7 @@ import jdk.internal.foreign.abi.CallingSequenceBuilder;
 import jdk.internal.foreign.abi.DowncallLinker;
 import jdk.internal.foreign.abi.LinkerOptions;
 import jdk.internal.foreign.abi.SharedUtils;
+import jdk.internal.foreign.abi.UpcallLinker;
 import jdk.internal.foreign.abi.VMStorage;
 
 import java.lang.foreign.AddressLayout;
@@ -106,24 +113,14 @@ public class LinuxS390CallArranger {
         return new Bindings(csb.build(), returnInMemory);
     }
 
+    /* Replace DowncallLinker in OpenJDK with the implementation of DowncallLinker specific to OpenJ9. */
     public static MethodHandle arrangeDowncall(MethodType mt, FunctionDescriptor cDesc, LinkerOptions options) {
-        Bindings bindings = getBindings(mt, cDesc, false, options);
-
-        MethodHandle handle = new DowncallLinker(CLinux, bindings.callingSequence).getBoundMethodHandle();
-
-        if (bindings.isInMemoryReturn) {
-            handle = SharedUtils.adaptDowncallForIMR(handle, cDesc, bindings.callingSequence);
-        }
-
-        return handle;
+        return DowncallLinker.getBoundMethodHandle(mt, cDesc, options);
     }
 
+    /* Replace UpcallLinker in OpenJDK with the implementation of UpcallLinker specific to OpenJ9. */
     public static UpcallStubFactory arrangeUpcall(MethodType mt, FunctionDescriptor cDesc, LinkerOptions options) {
-        Bindings bindings = getBindings(mt, cDesc, true, options);
-
-        final boolean dropReturn = true; /* drop return, since we don't have bindings for it */
-        return SharedUtils.arrangeUpcallHelper(mt, bindings.isInMemoryReturn, dropReturn, CLinux,
-                bindings.callingSequence);
+        return UpcallLinker.makeFactory(mt, cDesc, options);
     }
 
     private static boolean isInMemoryReturn(Optional<MemoryLayout> returnLayout) {

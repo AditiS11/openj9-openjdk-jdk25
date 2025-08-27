@@ -23,6 +23,12 @@
  * questions.
  */
 
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2022, 2024 All Rights Reserved
+ * ===========================================================================
+ */
+
 package sun.security.ec;
 
 import java.security.InvalidParameterException;
@@ -31,6 +37,10 @@ import java.security.Provider;
 import java.security.ProviderException;
 import java.util.HashMap;
 import java.util.List;
+
+import jdk.crypto.jniprovider.NativeCrypto;
+
+import jdk.internal.util.OperatingSystem;
 
 import sun.security.ec.ed.EdDSAKeyFactory;
 import sun.security.ec.ed.EdDSAKeyPairGenerator;
@@ -47,6 +57,36 @@ import static sun.security.util.SecurityProviderConstants.*;
 public final class SunEC extends Provider {
 
     private static final long serialVersionUID = -2279741672933606418L;
+
+    private static final boolean nativeCryptTrace = NativeCrypto.isTraceEnabled();
+
+    /* The property 'jdk.nativeEC' is used to control enablement of the native
+     * ECDH implementation.
+     */
+    private static final boolean useNativeECDH = NativeCrypto.isAlgorithmEnabled("jdk.nativeEC", "ECDH");
+
+    /* The property 'jdk.nativeECKeyGen' is used to control enablement of the native
+     * ECKeyGeneration implementation.
+     * OpenSSL 1.1.0 or above is required for EC key generation support.
+     */
+    private static final boolean useNativeECKeyGen = NativeCrypto.isAlgorithmEnabled("jdk.nativeECKeyGen", "ECKeyGen");
+
+    /* The property 'jdk.nativeECDSA' is used to control enablement of the native
+     * ECDSA signature implementation.
+     */
+    private static final boolean useNativeECDSA = NativeCrypto.isAlgorithmEnabled("jdk.nativeECDSA", "ECDSA");
+
+    /* The property 'jdk.nativeXDHKeyAgreement' is used to control enablement of the native
+     * XDH key agreement. XDH key agreement is only supported in OpenSSL 1.1.1 and above.
+     */
+    private static final boolean useNativeXDHKeyAgreement =
+        NativeCrypto.isAlgorithmEnabled("jdk.nativeXDHKeyAgreement", "XDHKeyAgreement");
+
+    /* The property 'jdk.nativeXDHKeyGen' is used to control enablement of the native
+     * XDH key generation. XDH key generation is only supported in OpenSSL 1.1.1 and above.
+     */
+    private static final boolean useNativeXDHKeyGen =
+        NativeCrypto.isAlgorithmEnabled("jdk.nativeXDHKeyGen", "XDHKeyGen");
 
     private static class ProviderServiceA extends ProviderService {
         ProviderServiceA(Provider p, String type, String algo, String cn,
@@ -91,37 +131,96 @@ public final class SunEC extends Provider {
                     if (inP1363) {
                         algo = algo.substring(0, algo.length() - 13);
                     }
-                    if (algo.equals("SHA1withECDSA")) {
-                        return (inP1363? new ECDSASignature.SHA1inP1363Format() :
-                            new ECDSASignature.SHA1());
-                    } else if (algo.equals("SHA224withECDSA")) {
-                        return (inP1363? new ECDSASignature.SHA224inP1363Format() :
-                            new ECDSASignature.SHA224());
-                    } else if (algo.equals("SHA256withECDSA")) {
-                        return (inP1363? new ECDSASignature.SHA256inP1363Format() :
-                            new ECDSASignature.SHA256());
-                    } else if (algo.equals("SHA384withECDSA")) {
-                        return (inP1363? new ECDSASignature.SHA384inP1363Format() :
-                            new ECDSASignature.SHA384());
-                    } else if (algo.equals("SHA512withECDSA")) {
-                        return (inP1363? new ECDSASignature.SHA512inP1363Format() :
-                            new ECDSASignature.SHA512());
-                    } else if (algo.equals("NONEwithECDSA")) {
-                        return (inP1363? new ECDSASignature.RawinP1363Format() :
-                            new ECDSASignature.Raw());
-                    } else if (algo.equals("SHA3-224withECDSA")) {
-                        return (inP1363? new ECDSASignature.SHA3_224inP1363Format() :
-                            new ECDSASignature.SHA3_224());
-                    } else if (algo.equals("SHA3-256withECDSA")) {
-                        return (inP1363? new ECDSASignature.SHA3_256inP1363Format() :
-                            new ECDSASignature.SHA3_256());
-                    } else if (algo.equals("SHA3-384withECDSA")) {
-                        return (inP1363? new ECDSASignature.SHA3_384inP1363Format() :
-                            new ECDSASignature.SHA3_384());
-                    } else if (algo.equals("SHA3-512withECDSA")) {
-                        return (inP1363? new ECDSASignature.SHA3_512inP1363Format() :
-                            new ECDSASignature.SHA3_512());
-                     }
+                    if (useNativeECDSA
+                        && (NativeCrypto.getVersionIfAvailable() >= NativeCrypto.OPENSSL_VERSION_1_1_1)
+                    ) {
+                        if (nativeCryptTrace) {
+                            System.err.println("ECDSA Signature - Using OpenSSL integration.");
+                        }
+                        if (algo.equals("SHA1withECDSA")) {
+                            return inP1363
+                                    ? new NativeECDSASignature.SHA1inP1363Format()
+                                    : new NativeECDSASignature.SHA1();
+                        } else if (algo.equals("SHA224withECDSA")) {
+                            return inP1363
+                                    ? new NativeECDSASignature.SHA224inP1363Format()
+                                    : new NativeECDSASignature.SHA224();
+                        } else if (algo.equals("SHA256withECDSA")) {
+                            return inP1363
+                                    ? new NativeECDSASignature.SHA256inP1363Format()
+                                    : new NativeECDSASignature.SHA256();
+                        } else if (algo.equals("SHA384withECDSA")) {
+                            return inP1363
+                                    ? new NativeECDSASignature.SHA384inP1363Format()
+                                    : new NativeECDSASignature.SHA384();
+                        } else if (algo.equals("SHA512withECDSA")) {
+                            return inP1363
+                                    ? new NativeECDSASignature.SHA512inP1363Format()
+                                    : new NativeECDSASignature.SHA512();
+                        } else if (algo.equals("NONEwithECDSA")) {
+                            return inP1363
+                                    ? new NativeECDSASignature.RawinP1363Format()
+                                    : new NativeECDSASignature.Raw();
+                        } else if (algo.equals("SHA3-224withECDSA")) {
+                            return inP1363
+                                    ? new NativeECDSASignature.SHA3_224inP1363Format()
+                                    : new NativeECDSASignature.SHA3_224();
+                        } else if (algo.equals("SHA3-256withECDSA")) {
+                            return inP1363
+                                    ? new NativeECDSASignature.SHA3_256inP1363Format()
+                                    : new NativeECDSASignature.SHA3_256();
+                        } else if (algo.equals("SHA3-384withECDSA")) {
+                            return inP1363
+                                    ? new NativeECDSASignature.SHA3_384inP1363Format()
+                                    : new NativeECDSASignature.SHA3_384();
+                        } else if (algo.equals("SHA3-512withECDSA")) {
+                            return inP1363
+                                    ? new NativeECDSASignature.SHA3_512inP1363Format()
+                                    : new NativeECDSASignature.SHA3_512();
+                        }
+                    } else {
+                        if (algo.equals("SHA1withECDSA")) {
+                            return inP1363
+                                    ? new ECDSASignature.SHA1inP1363Format()
+                                    : new ECDSASignature.SHA1();
+                        } else if (algo.equals("SHA224withECDSA")) {
+                            return inP1363
+                                    ? new ECDSASignature.SHA224inP1363Format()
+                                    : new ECDSASignature.SHA224();
+                        } else if (algo.equals("SHA256withECDSA")) {
+                            return inP1363
+                                    ? new ECDSASignature.SHA256inP1363Format()
+                                    : new ECDSASignature.SHA256();
+                        } else if (algo.equals("SHA384withECDSA")) {
+                            return inP1363
+                                    ? new ECDSASignature.SHA384inP1363Format()
+                                    : new ECDSASignature.SHA384();
+                        } else if (algo.equals("SHA512withECDSA")) {
+                            return inP1363
+                                    ? new ECDSASignature.SHA512inP1363Format()
+                                    : new ECDSASignature.SHA512();
+                        } else if (algo.equals("NONEwithECDSA")) {
+                            return inP1363
+                                    ? new ECDSASignature.RawinP1363Format()
+                                    : new ECDSASignature.Raw();
+                        } else if (algo.equals("SHA3-224withECDSA")) {
+                            return inP1363
+                                    ? new ECDSASignature.SHA3_224inP1363Format()
+                                    : new ECDSASignature.SHA3_224();
+                        } else if (algo.equals("SHA3-256withECDSA")) {
+                            return inP1363
+                                    ? new ECDSASignature.SHA3_256inP1363Format()
+                                    : new ECDSASignature.SHA3_256();
+                        } else if (algo.equals("SHA3-384withECDSA")) {
+                            return inP1363
+                                    ? new ECDSASignature.SHA3_384inP1363Format()
+                                    : new ECDSASignature.SHA3_384();
+                        } else if (algo.equals("SHA3-512withECDSA")) {
+                            return inP1363
+                                    ? new ECDSASignature.SHA3_512inP1363Format()
+                                    : new ECDSASignature.SHA3_512();
+                        }
+                    }
                 } else if (type.equals("KeyFactory")) {
                     if (algo.equals("EC")) {
                         return new ECKeyFactory();
@@ -144,12 +243,75 @@ public final class SunEC extends Provider {
                     }
                 } else  if (type.equals("KeyPairGenerator")) {
                     if (algo.equals("EC")) {
+                        if (useNativeECKeyGen) {
+                            if (NativeCrypto.getVersionIfAvailable() < NativeCrypto.OPENSSL_VERSION_1_1_0) {
+                                if (nativeCryptTrace) {
+                                    System.err.println("EC KeyPair Generation - Not using OpenSSL integration due to older version of OpenSSL (<1.1.0).");
+                                }
+                            } else {
+                                if (nativeCryptTrace) {
+                                    System.err.println("EC KeyPair Generation - Using OpenSSL integration.");
+                                }
+                                return new NativeECKeyPairGenerator();
+                            }
+                        }
                         return new ECKeyPairGenerator();
                     } else if (algo.equals("XDH")) {
+                        if (useNativeXDHKeyGen) {
+                            if (NativeCrypto.getVersionIfAvailable() < NativeCrypto.OPENSSL_VERSION_1_1_1) {
+                                if (nativeCryptTrace) {
+                                    System.err.println("XDH KeyPair Generation - Not using OpenSSL integration due to older version of OpenSSL (<1.1.1).");
+                                }
+                            } else if (OperatingSystem.isAix()) {
+                                /* Disabling OpenSSL usage on AIX due to perfomance regression observed. */
+                                if (nativeCryptTrace) {
+                                    System.err.println("XDH KeyPair Generation - Not using OpenSSL integration on AIX.");
+                                }
+                            } else {
+                                if (nativeCryptTrace) {
+                                    System.err.println("XDH KeyPair Generation - Using OpenSSL integration.");
+                                }
+                                return new NativeXDHKeyPairGenerator();
+                            }
+                        }
                         return new XDHKeyPairGenerator();
                     } else if (algo.equals("X25519")) {
+                        if (useNativeXDHKeyGen) {
+                            if (NativeCrypto.getVersionIfAvailable() < NativeCrypto.OPENSSL_VERSION_1_1_1) {
+                                if (nativeCryptTrace) {
+                                    System.err.println("X25519 KeyPair Generation - Not using OpenSSL integration due to older version of OpenSSL (<1.1.1).");
+                                }
+                            } else if (OperatingSystem.isAix()) {
+                                /* Disabling OpenSSL usage on AIX due to perfomance regression observed. */
+                                if (nativeCryptTrace) {
+                                    System.err.println("X25519 KeyPair Generation - Not using OpenSSL integration on AIX.");
+                                }
+                            } else {
+                                if (nativeCryptTrace) {
+                                    System.err.println("X25519 KeyPair Generation - Using OpenSSL integration.");
+                                }
+                                return new NativeXDHKeyPairGenerator.X25519();
+                            }
+                        }
                         return new XDHKeyPairGenerator.X25519();
                     } else if (algo.equals("X448")) {
+                        if (useNativeXDHKeyGen) {
+                            if (NativeCrypto.getVersionIfAvailable() < NativeCrypto.OPENSSL_VERSION_1_1_1) {
+                                if (nativeCryptTrace) {
+                                    System.err.println("X448 KeyPair Generation - Not using OpenSSL integration due to older version of OpenSSL (<1.1.1).");
+                                }
+                            } else if (OperatingSystem.isAix()) {
+                                /* Disabling OpenSSL usage on AIX due to perfomance regression observed. */
+                                if (nativeCryptTrace) {
+                                    System.err.println("X448 KeyPair Generation - Not using OpenSSL integration on AIX.");
+                                }
+                            } else {
+                                if (nativeCryptTrace) {
+                                    System.err.println("X448 KeyPair Generation - Using OpenSSL integration.");
+                                }
+                                return new NativeXDHKeyPairGenerator.X448();
+                            }
+                        }
                         return new XDHKeyPairGenerator.X448();
                     } else if (algo.equalsIgnoreCase("EdDSA")) {
                         return new EdDSAKeyPairGenerator();
@@ -160,12 +322,67 @@ public final class SunEC extends Provider {
                     }
                 } else  if (type.equals("KeyAgreement")) {
                     if (algo.equals("ECDH")) {
-                        return new ECDHKeyAgreement();
+                        if (useNativeECDH && NativeCrypto.isAllowedAndLoaded()) {
+                            return new NativeECDHKeyAgreement();
+                        } else {
+                            return new ECDHKeyAgreement();
+                        }
                     } else if (algo.equals("XDH")) {
+                        if (useNativeXDHKeyAgreement) {
+                            if (NativeCrypto.getVersionIfAvailable() < NativeCrypto.OPENSSL_VERSION_1_1_1) {
+                                if (nativeCryptTrace) {
+                                    System.err.println("XDH Key Agreement - Not using OpenSSL integration due to older version of OpenSSL (<1.1.1).");
+                                }
+                            } else if (OperatingSystem.isAix()) {
+                                /* Disabling OpenSSL usage on AIX due to perfomance regression observed. */
+                                if (nativeCryptTrace) {
+                                    System.err.println("XDH Key Agreement - Not using OpenSSL integration on AIX.");
+                                }
+                            } else {
+                                if (nativeCryptTrace) {
+                                    System.err.println("XDH Key Agreement - Using OpenSSL integration.");
+                                }
+                                return new NativeXDHKeyAgreement();
+                            }
+                        }
                         return new XDHKeyAgreement();
                     } else if (algo.equals("X25519")) {
+                        if (useNativeXDHKeyAgreement) {
+                            if (NativeCrypto.getVersionIfAvailable() < NativeCrypto.OPENSSL_VERSION_1_1_1) {
+                                if (nativeCryptTrace) {
+                                    System.err.println("X25519 Key Agreement - Not using OpenSSL integration due to older version of OpenSSL (<1.1.1).");
+                                }
+                            } else if (OperatingSystem.isAix()) {
+                                /* Disabling OpenSSL usage on AIX due to perfomance regression observed. */
+                                if (nativeCryptTrace) {
+                                    System.err.println("X25519 Key Agreement - Not using OpenSSL integration on AIX.");
+                                }
+                            } else {
+                                if (nativeCryptTrace) {
+                                    System.err.println("X25519 Key Agreement - Using OpenSSL integration.");
+                                }
+                                return new NativeXDHKeyAgreement.X25519();
+                            }
+                        }
                         return new XDHKeyAgreement.X25519();
                     } else if (algo.equals("X448")) {
+                        if (useNativeXDHKeyAgreement) {
+                            if (NativeCrypto.getVersionIfAvailable() < NativeCrypto.OPENSSL_VERSION_3_0_0) {
+                                if (nativeCryptTrace) {
+                                    System.err.println("X448 Key Agreement - Not using OpenSSL integration due to older version of OpenSSL (<3.x).");
+                                }
+                            } else if (OperatingSystem.isAix()) {
+                                /* Disabling OpenSSL usage on AIX due to perfomance regression observed. */
+                                if (nativeCryptTrace) {
+                                    System.err.println("X448 Key Agreement - Not using OpenSSL integration on AIX.");
+                                }
+                            } else {
+                                if (nativeCryptTrace) {
+                                    System.err.println("X448 Key Agreement - Using OpenSSL integration.");
+                                }
+                                return new NativeXDHKeyAgreement.X448();
+                            }
+                        }
                         return new XDHKeyAgreement.X448();
                     }
                 }
@@ -235,80 +452,161 @@ public final class SunEC extends Provider {
         /*
          * Signature engines
          */
-        putService(new ProviderService(this, "Signature",
-            "NONEwithECDSA", "sun.security.ec.ECDSASignature$Raw",
-            null, ATTRS));
-        putService(new ProviderServiceA(this, "Signature",
-            "SHA1withECDSA", "sun.security.ec.ECDSASignature$SHA1",
-            ATTRS));
-        putService(new ProviderServiceA(this, "Signature",
-            "SHA224withECDSA", "sun.security.ec.ECDSASignature$SHA224",
-            ATTRS));
-        putService(new ProviderServiceA(this, "Signature",
-            "SHA256withECDSA", "sun.security.ec.ECDSASignature$SHA256",
-            ATTRS));
-        putService(new ProviderServiceA(this, "Signature",
-            "SHA384withECDSA", "sun.security.ec.ECDSASignature$SHA384",
-            ATTRS));
-        putService(new ProviderServiceA(this, "Signature",
-            "SHA512withECDSA", "sun.security.ec.ECDSASignature$SHA512",
-            ATTRS));
-        putService(new ProviderServiceA(this, "Signature",
-            "SHA3-224withECDSA", "sun.security.ec.ECDSASignature$SHA3_224",
-            ATTRS));
-        putService(new ProviderServiceA(this, "Signature",
-            "SHA3-256withECDSA", "sun.security.ec.ECDSASignature$SHA3_256",
-            ATTRS));
-        putService(new ProviderServiceA(this, "Signature",
-            "SHA3-384withECDSA", "sun.security.ec.ECDSASignature$SHA3_384",
-            ATTRS));
-        putService(new ProviderServiceA(this, "Signature",
-            "SHA3-512withECDSA", "sun.security.ec.ECDSASignature$SHA3_512",
-            ATTRS));
+        if (useNativeECDSA
+            && (NativeCrypto.getVersionIfAvailable() >= NativeCrypto.OPENSSL_VERSION_1_1_1)
+        ) {
+            putService(new ProviderService(this, "Signature",
+                "NONEwithECDSA", "sun.security.ec.NativeECDSASignature$Raw",
+                null, ATTRS));
+            putService(new ProviderServiceA(this, "Signature",
+                "SHA1withECDSA", "sun.security.ec.NativeECDSASignature$SHA1",
+                ATTRS));
+            putService(new ProviderServiceA(this, "Signature",
+                "SHA224withECDSA", "sun.security.ec.NativeECDSASignature$SHA224",
+                ATTRS));
+            putService(new ProviderServiceA(this, "Signature",
+                "SHA256withECDSA", "sun.security.ec.NativeECDSASignature$SHA256",
+                ATTRS));
+            putService(new ProviderServiceA(this, "Signature",
+                "SHA384withECDSA", "sun.security.ec.NativeECDSASignature$SHA384",
+                ATTRS));
+            putService(new ProviderServiceA(this, "Signature",
+                "SHA512withECDSA", "sun.security.ec.NativeECDSASignature$SHA512",
+                ATTRS));
+            putService(new ProviderServiceA(this, "Signature",
+                "SHA3-224withECDSA", "sun.security.ec.NativeECDSASignature$SHA3_224",
+                ATTRS));
+            putService(new ProviderServiceA(this, "Signature",
+                "SHA3-256withECDSA", "sun.security.ec.NativeECDSASignature$SHA3_256",
+                ATTRS));
+            putService(new ProviderServiceA(this, "Signature",
+                "SHA3-384withECDSA", "sun.security.ec.NativeECDSASignature$SHA3_384",
+                ATTRS));
+            putService(new ProviderServiceA(this, "Signature",
+                "SHA3-512withECDSA", "sun.security.ec.NativeECDSASignature$SHA3_512",
+                ATTRS));
 
-        putService(new ProviderService(this, "Signature",
-             "NONEwithECDSAinP1363Format",
-             "sun.security.ec.ECDSASignature$RawinP1363Format"));
-        putService(new ProviderService(this, "Signature",
-             "SHA1withECDSAinP1363Format",
-             "sun.security.ec.ECDSASignature$SHA1inP1363Format"));
-        putService(new ProviderService(this, "Signature",
-             "SHA224withECDSAinP1363Format",
-             "sun.security.ec.ECDSASignature$SHA224inP1363Format"));
-        putService(new ProviderService(this, "Signature",
-             "SHA256withECDSAinP1363Format",
-             "sun.security.ec.ECDSASignature$SHA256inP1363Format"));
-        putService(new ProviderService(this, "Signature",
-            "SHA384withECDSAinP1363Format",
-            "sun.security.ec.ECDSASignature$SHA384inP1363Format"));
-        putService(new ProviderService(this, "Signature",
-            "SHA512withECDSAinP1363Format",
-            "sun.security.ec.ECDSASignature$SHA512inP1363Format"));
+            putService(new ProviderService(this, "Signature",
+                "NONEwithECDSAinP1363Format",
+                "sun.security.ec.NativeECDSASignature$RawinP1363Format"));
+            putService(new ProviderService(this, "Signature",
+                "SHA1withECDSAinP1363Format",
+                "sun.security.ec.NativeECDSASignature$SHA1inP1363Format"));
+            putService(new ProviderService(this, "Signature",
+                "SHA224withECDSAinP1363Format",
+                "sun.security.ec.NativeECDSASignature$SHA224inP1363Format"));
+            putService(new ProviderService(this, "Signature",
+                "SHA256withECDSAinP1363Format",
+                "sun.security.ec.NativeECDSASignature$SHA256inP1363Format"));
+            putService(new ProviderService(this, "Signature",
+                "SHA384withECDSAinP1363Format",
+                "sun.security.ec.NativeECDSASignature$SHA384inP1363Format"));
+            putService(new ProviderService(this, "Signature",
+                "SHA512withECDSAinP1363Format",
+                "sun.security.ec.NativeECDSASignature$SHA512inP1363Format"));
 
-        putService(new ProviderService(this, "Signature",
-             "SHA3-224withECDSAinP1363Format",
-             "sun.security.ec.ECDSASignature$SHA3_224inP1363Format"));
-        putService(new ProviderService(this, "Signature",
-             "SHA3-256withECDSAinP1363Format",
-             "sun.security.ec.ECDSASignature$SHA3_256inP1363Format"));
-        putService(new ProviderService(this, "Signature",
-            "SHA3-384withECDSAinP1363Format",
-            "sun.security.ec.ECDSASignature$SHA3_384inP1363Format"));
-        putService(new ProviderService(this, "Signature",
-            "SHA3-512withECDSAinP1363Format",
-            "sun.security.ec.ECDSASignature$SHA3_512inP1363Format"));
+            putService(new ProviderService(this, "Signature",
+                "SHA3-224withECDSAinP1363Format",
+                "sun.security.ec.NativeECDSASignature$SHA3_224inP1363Format"));
+            putService(new ProviderService(this, "Signature",
+                "SHA3-256withECDSAinP1363Format",
+                "sun.security.ec.NativeECDSASignature$SHA3_256inP1363Format"));
+            putService(new ProviderService(this, "Signature",
+                "SHA3-384withECDSAinP1363Format",
+                "sun.security.ec.NativeECDSASignature$SHA3_384inP1363Format"));
+            putService(new ProviderService(this, "Signature",
+                "SHA3-512withECDSAinP1363Format",
+                "sun.security.ec.NativeECDSASignature$SHA3_512inP1363Format"));
+        } else {
+            putService(new ProviderService(this, "Signature",
+                "NONEwithECDSA", "sun.security.ec.ECDSASignature$Raw",
+                null, ATTRS));
+            putService(new ProviderServiceA(this, "Signature",
+                "SHA1withECDSA", "sun.security.ec.ECDSASignature$SHA1",
+                ATTRS));
+            putService(new ProviderServiceA(this, "Signature",
+                "SHA224withECDSA", "sun.security.ec.ECDSASignature$SHA224",
+                ATTRS));
+            putService(new ProviderServiceA(this, "Signature",
+                "SHA256withECDSA", "sun.security.ec.ECDSASignature$SHA256",
+                ATTRS));
+            putService(new ProviderServiceA(this, "Signature",
+                "SHA384withECDSA", "sun.security.ec.ECDSASignature$SHA384",
+                ATTRS));
+            putService(new ProviderServiceA(this, "Signature",
+                "SHA512withECDSA", "sun.security.ec.ECDSASignature$SHA512",
+                ATTRS));
+            putService(new ProviderServiceA(this, "Signature",
+                "SHA3-224withECDSA", "sun.security.ec.ECDSASignature$SHA3_224",
+                ATTRS));
+            putService(new ProviderServiceA(this, "Signature",
+                "SHA3-256withECDSA", "sun.security.ec.ECDSASignature$SHA3_256",
+                ATTRS));
+            putService(new ProviderServiceA(this, "Signature",
+                "SHA3-384withECDSA", "sun.security.ec.ECDSASignature$SHA3_384",
+                ATTRS));
+            putService(new ProviderServiceA(this, "Signature",
+                "SHA3-512withECDSA", "sun.security.ec.ECDSASignature$SHA3_512",
+                ATTRS));
+
+            putService(new ProviderService(this, "Signature",
+                "NONEwithECDSAinP1363Format",
+                "sun.security.ec.ECDSASignature$RawinP1363Format"));
+            putService(new ProviderService(this, "Signature",
+                "SHA1withECDSAinP1363Format",
+                "sun.security.ec.ECDSASignature$SHA1inP1363Format"));
+            putService(new ProviderService(this, "Signature",
+                "SHA224withECDSAinP1363Format",
+                "sun.security.ec.ECDSASignature$SHA224inP1363Format"));
+            putService(new ProviderService(this, "Signature",
+                "SHA256withECDSAinP1363Format",
+                "sun.security.ec.ECDSASignature$SHA256inP1363Format"));
+            putService(new ProviderService(this, "Signature",
+                "SHA384withECDSAinP1363Format",
+                "sun.security.ec.ECDSASignature$SHA384inP1363Format"));
+            putService(new ProviderService(this, "Signature",
+                "SHA512withECDSAinP1363Format",
+                "sun.security.ec.ECDSASignature$SHA512inP1363Format"));
+
+            putService(new ProviderService(this, "Signature",
+                "SHA3-224withECDSAinP1363Format",
+                "sun.security.ec.ECDSASignature$SHA3_224inP1363Format"));
+            putService(new ProviderService(this, "Signature",
+                "SHA3-256withECDSAinP1363Format",
+                "sun.security.ec.ECDSASignature$SHA3_256inP1363Format"));
+            putService(new ProviderService(this, "Signature",
+                "SHA3-384withECDSAinP1363Format",
+                "sun.security.ec.ECDSASignature$SHA3_384inP1363Format"));
+            putService(new ProviderService(this, "Signature",
+                "SHA3-512withECDSAinP1363Format",
+                "sun.security.ec.ECDSASignature$SHA3_512inP1363Format"));
+        }
 
         /*
          *  Key Pair Generator engine
          */
-        putService(new ProviderServiceA(this, "KeyPairGenerator",
-            "EC", "sun.security.ec.ECKeyPairGenerator", ATTRS));
+        /* Disabling OpenSSL usage in AIX due to perfomance regression observed */
+        if (useNativeECKeyGen
+            && (NativeCrypto.getVersionIfAvailable() >= NativeCrypto.OPENSSL_VERSION_1_1_0)
+            && !OperatingSystem.isAix()
+        ) {
+            putService(new ProviderServiceA(this, "KeyPairGenerator",
+                "EC", "sun.security.ec.NativeECKeyPairGenerator", ATTRS));
+        } else {
+            putService(new ProviderServiceA(this, "KeyPairGenerator",
+                "EC", "sun.security.ec.ECKeyPairGenerator", ATTRS));
+        }
 
         /*
          * Key Agreement engine
          */
-        putService(new ProviderService(this, "KeyAgreement",
-            "ECDH", "sun.security.ec.ECDHKeyAgreement", null, ATTRS));
+        if (useNativeECDH && NativeCrypto.isAllowedAndLoaded()) {
+            putService(new ProviderService(this, "KeyAgreement",
+                "ECDH", "sun.security.ec.NativeECDHKeyAgreement", null, ATTRS));
+        } else {
+            putService(new ProviderService(this, "KeyAgreement",
+                "ECDH", "sun.security.ec.ECDHKeyAgreement", null, ATTRS));
+        }
     }
 
     private void putXDHEntries() {
@@ -325,23 +623,51 @@ public final class SunEC extends Provider {
             "X448", "sun.security.ec.XDHKeyFactory.X448",
             ATTRS));
 
-        putService(new ProviderService(this, "KeyPairGenerator",
-            "XDH", "sun.security.ec.XDHKeyPairGenerator", null, ATTRS));
-        putService(new ProviderServiceA(this, "KeyPairGenerator",
-            "X25519", "sun.security.ec.XDHKeyPairGenerator.X25519",
-            ATTRS));
-        putService(new ProviderServiceA(this, "KeyPairGenerator",
-            "X448", "sun.security.ec.XDHKeyPairGenerator.X448",
-            ATTRS));
+        if (useNativeXDHKeyGen
+            && (NativeCrypto.getVersionIfAvailable() >= NativeCrypto.OPENSSL_VERSION_1_1_1)
+            && !OperatingSystem.isAix()
+        ) {
+            putService(new ProviderService(this, "KeyPairGenerator",
+                "XDH", "sun.security.ec.NativeXDHKeyPairGenerator", null, ATTRS));
+            putService(new ProviderServiceA(this, "KeyPairGenerator",
+                "X25519", "sun.security.ec.NativeXDHKeyPairGenerator.X25519",
+                ATTRS));
+            putService(new ProviderServiceA(this, "KeyPairGenerator",
+                "X448", "sun.security.ec.NativeXDHKeyPairGenerator.X448",
+                ATTRS));
+        } else {
+            putService(new ProviderService(this, "KeyPairGenerator",
+                "XDH", "sun.security.ec.XDHKeyPairGenerator", null, ATTRS));
+            putService(new ProviderServiceA(this, "KeyPairGenerator",
+                "X25519", "sun.security.ec.XDHKeyPairGenerator.X25519",
+                ATTRS));
+            putService(new ProviderServiceA(this, "KeyPairGenerator",
+                "X448", "sun.security.ec.XDHKeyPairGenerator.X448",
+                ATTRS));
+        }
 
-        putService(new ProviderService(this, "KeyAgreement",
-            "XDH", "sun.security.ec.XDHKeyAgreement", null, ATTRS));
-        putService(new ProviderServiceA(this, "KeyAgreement",
-            "X25519", "sun.security.ec.XDHKeyAgreement.X25519",
-            ATTRS));
-        putService(new ProviderServiceA(this, "KeyAgreement",
-            "X448", "sun.security.ec.XDHKeyAgreement.X448",
-            ATTRS));
+        if (useNativeXDHKeyAgreement
+            && (NativeCrypto.getVersionIfAvailable() >= NativeCrypto.OPENSSL_VERSION_1_1_1)
+            && !OperatingSystem.isAix()
+        ) {
+            putService(new ProviderService(this, "KeyAgreement",
+                "XDH", "sun.security.ec.NativeXDHKeyAgreement", null, ATTRS));
+            putService(new ProviderServiceA(this, "KeyAgreement",
+                "X25519", "sun.security.ec.NativeXDHKeyAgreement.X25519",
+                ATTRS));
+            putService(new ProviderServiceA(this, "KeyAgreement",
+                "X448", "sun.security.ec.NativeXDHKeyAgreement.X448",
+                ATTRS));
+        } else {
+            putService(new ProviderService(this, "KeyAgreement",
+                "XDH", "sun.security.ec.XDHKeyAgreement", null, ATTRS));
+            putService(new ProviderServiceA(this, "KeyAgreement",
+                "X25519", "sun.security.ec.XDHKeyAgreement.X25519",
+                ATTRS));
+            putService(new ProviderServiceA(this, "KeyAgreement",
+                "X448", "sun.security.ec.XDHKeyAgreement.X448",
+                ATTRS));
+        }
     }
 
     private void putEdDSAEntries() {

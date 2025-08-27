@@ -23,6 +23,10 @@
 # questions.
 #
 
+# ===========================================================================
+# (c) Copyright IBM Corp. 2022, 2022 All Rights Reserved
+# ===========================================================================
+
 include MakeIncludeStart.gmk
 ifeq ($(INCLUDE), true)
 
@@ -44,7 +48,7 @@ BUILD_LOG_PIPE_SIMPLE := | $(TEE) -a $(BUILD_LOG)
 define SetupReproducibleBuild
   ifeq ($$(SOURCE_DATE), updated)
     # For static values of SOURCE_DATE (not "updated"), these are set in spec.gmk
-    export SOURCE_DATE_EPOCH := $$(shell $$(DATE) +"%s")
+    export SOURCE_DATE_EPOCH := $$(shell $$(JAVA) $$(TOPDIR)/make/src/classes/DateUtil.java)
     export SOURCE_DATE_ISO_8601 := $$(call EpochToISO8601, $$(SOURCE_DATE_EPOCH))
   endif
 endef

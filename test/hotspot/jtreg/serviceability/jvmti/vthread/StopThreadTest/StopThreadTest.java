@@ -22,23 +22,24 @@
  */
 
 /*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2025, 2025 All Rights Reserved
+ * ===========================================================================
+ */
+
+/*
  * @test id=default
  * @summary Verifies JVMTI StopThread support for virtual threads.
+ * @modules java.base/com.ibm.oti.vm
  * @requires vm.continuations
  * @library /test/lib
  * @run main/othervm/native -agentlib:StopThreadTest StopThreadTest
  */
 
 /*
- * @test id=no-vmcontinuations
- * @summary Verifies JVMTI StopThread support for bound virtual threads.
- * @library /test/lib
- * @run main/othervm/native -agentlib:StopThreadTest -XX:+UnlockExperimentalVMOptions -XX:-VMContinuations -DboundVThread=true StopThreadTest
- */
-
-/*
  * @test id=platform
  * @summary Verifies JVMTI StopThread support for platform threads.
+ * @modules java.base/com.ibm.oti.vm
  * @library /test/lib
  * @run main/othervm/native -agentlib:StopThreadTest StopThreadTest platform
  */
@@ -277,8 +278,6 @@ public class StopThreadTest {
     }
 
     static boolean preemptableVirtualThread() {
-        boolean legacyLockingMode = ManagementFactory.getPlatformMXBean(HotSpotDiagnosticMXBean.class)
-                                        .getVMOption("LockingMode").getValue().equals("1");
-        return is_virtual && !isBoundVThread && !legacyLockingMode;
+        return is_virtual && !isBoundVThread && com.ibm.oti.vm.VM.isYieldBlockedVirtualThreadsEnabled();
     }
 }

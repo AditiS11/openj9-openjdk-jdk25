@@ -24,6 +24,12 @@
  *
  */
 
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2024, 2024 All Rights Reserved
+ * ===========================================================================
+ */
+
 package jdk.internal.foreign;
 
 import jdk.internal.foreign.abi.fallback.FallbackLinker;
@@ -44,6 +50,7 @@ public enum CABI {
     LINUX_PPC_64_LE,
     LINUX_RISCV_64,
     LINUX_S390,
+    ZOS_S390,
     FALLBACK,
     UNSUPPORTED;
 
@@ -93,6 +100,8 @@ public enum CABI {
             } else if (arch.equals("s390x")) {
                 if (OperatingSystem.isLinux()) {
                     return LINUX_S390;
+                } else {
+                    return ZOS_S390;
                 }
         }
         } else if (FallbackLinker.isSupported()) {

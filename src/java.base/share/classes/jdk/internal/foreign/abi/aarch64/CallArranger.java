@@ -23,6 +23,13 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
+
+/*
+ * ===========================================================================
+ * (c) Copyright IBM Corp. 2022, 2023 All Rights Reserved
+ * ===========================================================================
+ */
+
 package jdk.internal.foreign.abi.aarch64;
 
 import jdk.internal.foreign.Utils;
@@ -34,10 +41,12 @@ import jdk.internal.foreign.abi.CallingSequenceBuilder;
 import jdk.internal.foreign.abi.DowncallLinker;
 import jdk.internal.foreign.abi.LinkerOptions;
 import jdk.internal.foreign.abi.SharedUtils;
+import jdk.internal.foreign.abi.UpcallLinker;
 import jdk.internal.foreign.abi.VMStorage;
 import jdk.internal.foreign.abi.aarch64.linux.LinuxAArch64CallArranger;
 import jdk.internal.foreign.abi.aarch64.macos.MacOsAArch64CallArranger;
 import jdk.internal.foreign.abi.aarch64.windows.WindowsAArch64CallArranger;
+import jdk.internal.util.OperatingSystem;
 
 import java.lang.foreign.AddressLayout;
 import java.lang.foreign.FunctionDescriptor;
@@ -177,24 +186,21 @@ public abstract class CallArranger {
         return new Bindings(csb.build(), returnInMemory);
     }
 
+    /* Replace DowncallLinker in OpenJDK with the implementation of DowncallLinker specific to OpenJ9. */
     public MethodHandle arrangeDowncall(MethodType mt, FunctionDescriptor cDesc, LinkerOptions options) {
-        Bindings bindings = getBindings(mt, cDesc, false, options);
-
-        MethodHandle handle = new DowncallLinker(abiDescriptor(), bindings.callingSequence).getBoundMethodHandle();
-
-        if (bindings.isInMemoryReturn) {
-            handle = SharedUtils.adaptDowncallForIMR(handle, cDesc, bindings.callingSequence);
+        if (OperatingSystem.isWindows()) {
+            throw new InternalError("arrangeDowncall is not implemented on Windows/Aarch64");
         }
-
-        return handle;
+        return DowncallLinker.getBoundMethodHandle(mt, cDesc, options);
     }
 
+    /* Replace UpcallLinker in OpenJDK with the implementation of UpcallLinker specific to OpenJ9. */
     public UpcallStubFactory arrangeUpcall(MethodType mt, FunctionDescriptor cDesc,
                                                           LinkerOptions options) {
-        Bindings bindings = getBindings(mt, cDesc, true, options);
-        final boolean dropReturn = true; /* drop return, since we don't have bindings for it */
-        return SharedUtils.arrangeUpcallHelper(mt, bindings.isInMemoryReturn, dropReturn, abiDescriptor(),
-                bindings.callingSequence);
+        if (OperatingSystem.isWindows()) {
+            throw new InternalError("arrangeUpcall is not implemented on Windows/Aarch64");
+        }
+        return UpcallLinker.makeFactory(mt, cDesc, options);
     }
 
     private static boolean isInMemoryReturn(Optional<MemoryLayout> returnLayout) {
