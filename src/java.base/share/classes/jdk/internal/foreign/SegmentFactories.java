@@ -237,9 +237,15 @@ public class SegmentFactories {
     }
 
     private static void initNativeMemory(long address, long byteSize) {
-        for (long i = 0; i < byteSize; i += Long.BYTES) {
-            UNSAFE.putLongUnaligned(null, address + i, 0);
-        }
+	    if (byteSize >= Long.BYTES) {
+		    for (long i = 0; i < byteSize; i += Long.BYTES) {
+			    UNSAFE.putLongUnaligned(null, address + i, 0L);
+		    }
+	    } else {
+		    for (long i = 0; i < byteSize; i++) {
+			    UNSAFE.putByte(null, address + i, (byte) 0);
+		    }
+	    }
     }
 
     private static long allocateMemoryWrapper(long size) {
