@@ -198,7 +198,7 @@ public class SegmentFactories {
         }
         // Always allocate at least some memory so that zero-length segments have distinct
         // non-zero addresses.
-        alignedSize = Math.max(1, alignedSize);
+        alignedSize = Math.max(Long.BYTES, alignedSize);
 
         long allocationSize;
         long allocationBase;
@@ -237,9 +237,9 @@ public class SegmentFactories {
     }
 
     private static void initNativeMemory(long address, long byteSize) {
-        for (long i = 0; i < byteSize; i += Long.BYTES) {
-            UNSAFE.putLongUnaligned(null, address + i, 0);
-        }
+	    for (long i = 0; i < byteSize; i += Long.BYTES) {
+		    UNSAFE.putLongUnaligned(null, address + i, 0);
+	    }
     }
 
     private static long allocateMemoryWrapper(long size) {
